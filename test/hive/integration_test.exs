@@ -487,6 +487,29 @@ defmodule Hive.IntegrationTest do
       subs = Topic.subscribers(topic)
       assert MapSet.member?(subs, agent)
     end
+
+    test "message order remains chronological in ChatLive after Topic restart", %{p: p} do
+      topic = topic_name(p, "restart-order")
+      human = "human"
+      agent = agent_name(p, "alice")
+
+      :ok = Persistence.create_agent(agent, "d", "p")
+      :ok = Persistence.create_topic(topic, "d", "topic", nil)
+
+      start_topic(topic)
+      {:ok, _} = Topic.join(topic, human)
+      {:ok, _} = Topic.join(topic, agent)
+
+      :ok = Topic.post(topic, human, "human first")
+      :ok = Topic.post(topic, agent, "agent second")
+      :sys.get_state(Hive.Persistence)
+
+      stop_supervised!(Topic)
+      start_topic(topic)
+
+      reloaded = Topic.recent(topic, 50) |> Enum.reverse()
+      assert Enum.map(reloaded, & &1.body) == ["human first", "agent second"]
+    end
   end
 
   # ── 7. Message ring buffer overflow ───────────────────────────────────

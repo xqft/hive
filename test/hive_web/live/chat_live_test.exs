@@ -11,7 +11,14 @@ defmodule HiveWeb.ChatLiveTest do
   """
 
   defp create_topic(name) do
-    :ok = Hive.Persistence.create_topic(name, "Test: #{name}", "topic", nil)
+    case Hive.Persistence.create_topic(name, "Test: #{name}", "topic", nil) do
+      :ok ->
+        :ok
+
+      {:error, :name_taken} ->
+        cleanup_topic(name)
+        :ok = Hive.Persistence.create_topic(name, "Test: #{name}", "topic", nil)
+    end
 
     {:ok, pid} =
       DynamicSupervisor.start_child(

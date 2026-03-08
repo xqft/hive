@@ -125,8 +125,13 @@ defmodule Hive.Topic do
 
     messages =
       case persist(fn -> Hive.Persistence.get_messages(name, @max_buffer) end) do
-        {:ok, list} when is_list(list) -> Enum.map(list, &with_sender_kind/1)
-        _ -> []
+        {:ok, list} when is_list(list) ->
+          list
+          |> Enum.map(&with_sender_kind/1)
+          |> Enum.reverse()
+
+        _ ->
+          []
       end
 
     state = %__MODULE__{
