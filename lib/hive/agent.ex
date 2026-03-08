@@ -27,6 +27,7 @@ defmodule Hive.Agent do
     :session_id,
     :mcp_secret,
     :active_channel,
+    :typing_timer,
     line_buffer: ""
   ]
 
@@ -346,6 +347,11 @@ defmodule Hive.Agent do
   # Catch-all for unexpected port messages
   def handle_info({port, _}, %{sdk_port: port} = state) do
     {:noreply, state}
+  end
+
+  def handle_info(:typing_grace_expired, state) do
+    state = stop_active_typing(state, preserve_channel: true)
+    {:noreply, %{state | typing_timer: nil}}
   end
 
   def handle_info(msg, state) do
@@ -686,6 +692,8 @@ defmodule Hive.Agent do
     if sender == state.name do
       state
     else
+      # Cancel any pending grace timer since we're starting new activity
+      state = cancel_typing_timer(state)
       next_state = stop_active_typing(state)
       channel = {channel_type, channel_name}
 
@@ -698,7 +706,18 @@ defmodule Hive.Agent do
     end
   end
 
-  defp maybe_stop_activity(state, :idle), do: stop_active_typing(state, preserve_channel: true)
+  defp maybe_stop_activity(state, :idle) do
+    # Use grace period — agent may resume thinking shortly
+    state = cancel_typing_timer(state)
+    timer = Process.send_after(self(), :typing_grace_expired, 3_000)
+    %{state | typing_timer: timer}
+  end
+
+  defp maybe_stop_activity(state, :thinking) do
+    # Agent resumed — cancel any pending grace timer
+    cancel_typing_timer(state)
+  end
+
   defp maybe_stop_activity(state, _status), do: state
 
   defp stop_active_typing(state), do: stop_active_typing(state, preserve_channel: false)
@@ -715,6 +734,13 @@ defmodule Hive.Agent do
     else
       %{state | active_channel: nil}
     end
+  end
+
+  defp cancel_typing_timer(%{typing_timer: nil} = state), do: state
+
+  defp cancel_typing_timer(%{typing_timer: timer} = state) do
+    Process.cancel_timer(timer)
+    %{state | typing_timer: nil}
   end
 
   defdelegate safe_broadcast(topic, payload), to: Hive.Util

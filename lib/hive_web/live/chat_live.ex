@@ -77,7 +77,6 @@ defmodule HiveWeb.ChatLive do
       <.app_shell
         current={:chat}
         title={page_heading(@active_topic)}
-        subtitle="Fast topic switching, lightweight DMs, and markdown-ready chat without losing scanability."
       >
         <div class="ui-chat-screen">
           <div class="ui-chat-layout">
@@ -89,7 +88,7 @@ defmodule HiveWeb.ChatLive do
                       <p class="ui-section-label">Topics</p>
                       <p class="ui-helper-text">Persistent spaces for ongoing work.</p>
                     </div>
-                    <.button variant="ghost" size="sm" phx-click="toggle_create_topic">New</.button>
+                    <.button variant="ghost" size="sm" phx-click="toggle_create_topic" aria-label="New topic"><.icon name="hero-plus" class="size-4" /></.button>
                   </div>
 
                   <div :if={@show_create_topic} class="ui-card">
@@ -151,7 +150,7 @@ defmodule HiveWeb.ChatLive do
                       <p class="ui-section-label">Direct messages</p>
                       <p class="ui-helper-text">Open a focused thread with one agent.</p>
                     </div>
-                    <.button variant="ghost" size="sm" phx-click="toggle_new_dm">New</.button>
+                    <.button variant="ghost" size="sm" phx-click="toggle_new_dm" aria-label="New DM"><.icon name="hero-plus" class="size-4" /></.button>
                   </div>
 
                   <div :if={@show_new_dm} class="ui-card ui-stack">
@@ -182,7 +181,7 @@ defmodule HiveWeb.ChatLive do
                         <span class="font-medium text-[var(--ui-text-strong)]">
                           {dm_display_name(dm.name)}
                         </span>
-                        <span class="ui-topic-link__meta">Direct message</span>
+                        <span class="ui-topic-link__meta">DM</span>
                       </span>
                       <span
                         :if={unread_count(@unread_counts, dm.name) > 0}
@@ -253,8 +252,12 @@ defmodule HiveWeb.ChatLive do
               </div>
 
               <div :if={@typing_agents != []} class="ui-typing-indicator" id="typing-indicator">
-                <.icon name="hero-ellipsis-horizontal" class="size-4" />
-                <span>{typing_summary(@typing_agents)}</span>
+                <span class="ui-typing-dots">
+                  <span class="ui-typing-dots__dot"></span>
+                  <span class="ui-typing-dots__dot"></span>
+                  <span class="ui-typing-dots__dot"></span>
+                </span>
+                <span>{thinking_summary(@typing_agents)}</span>
               </div>
 
               <form id={"msg-form-#{@form_reset}"} phx-submit="send_message" class="ui-chat-composer">
@@ -276,9 +279,10 @@ defmodule HiveWeb.ChatLive do
                     name="text"
                     rows="1"
                     class="ui-chat-composer__field ui-chat-composer__input"
-                    placeholder="Message the topic. Press Enter to send, Shift+Enter for a new line."
+                    placeholder={composer_placeholder(@active_topic)}
                     autocomplete="off"
                     spellcheck="true"
+                    disabled={is_nil(@active_topic)}
                   ></textarea>
 
                   <div
@@ -287,34 +291,29 @@ defmodule HiveWeb.ChatLive do
                     aria-label="Agent mention suggestions"
                   >
                   </div>
-                </div>
 
-                <div :if={@uploads.media.entries != []} class="ui-upload-previews">
-                  <div :for={entry <- @uploads.media.entries} class="ui-upload-preview">
-                    <.live_img_preview entry={entry} class="ui-upload-preview__thumb" />
-                    <button
-                      type="button"
-                      phx-click="cancel_upload"
-                      phx-value-ref={entry.ref}
-                      class="ui-upload-preview__remove"
-                      aria-label="Remove"
-                    >
-                      &times;
-                    </button>
+                  <div :if={@uploads.media.entries != []} class="ui-upload-previews" style="padding: 0.5rem 0.95rem 0;">
+                    <div :for={entry <- @uploads.media.entries} class="ui-upload-preview">
+                      <.live_img_preview entry={entry} class="ui-upload-preview__thumb" />
+                      <button
+                        type="button"
+                        phx-click="cancel_upload"
+                        phx-value-ref={entry.ref}
+                        class="ui-upload-preview__remove"
+                        aria-label="Remove"
+                      >
+                        &times;
+                      </button>
+                    </div>
                   </div>
-                </div>
 
-                <div class="ui-chat-composer__footer">
-                  <div class="ui-chat-composer__actions">
+                  <div class="ui-chat-composer__toolbar">
                     <label class="ui-chat-composer__upload-btn" title="Attach image">
                       <.live_file_input upload={@uploads.media} class="hidden" />
                       <.icon name="hero-paper-clip" class="size-5" />
                     </label>
-                    <p class="ui-helper-text">
-                      Markdown supported. Attach images with the paperclip.
-                    </p>
+                    <.button id="chat-send-button" disabled={is_nil(@active_topic)}>Send</.button>
                   </div>
-                  <.button id="chat-send-button">Send</.button>
                 </div>
               </form>
             </section>
@@ -354,23 +353,23 @@ defmodule HiveWeb.ChatLive do
 
                   <div :if={@containers == []} class="ui-empty">No active containers right now.</div>
 
-                  <div :for={container <- @containers} class="ui-card ui-stack">
-                    <div>
-                      <p class="ui-meta-label">{container.agent || "container"}</p>
-                      <p class="mt-1 font-mono text-sm text-[var(--ui-text-strong)]">
-                        {container.id}
-                      </p>
-                      <p class="mt-2 text-sm text-[var(--ui-text-soft)]">{container.task}</p>
+                  <.link
+                    :for={container <- @containers}
+                    navigate={~p"/containers/#{container.id}"}
+                    class="ui-container-card-link"
+                  >
+                    <div class="ui-card ui-stack">
+                      <div>
+                        <p class="text-sm text-[var(--ui-text-strong)]">
+                          {container.task || "Running..."}
+                        </p>
+                        <div class="mt-1.5 flex items-center gap-2">
+                          <span class="ui-pill">{container.agent || "container"}</span>
+                          <span class="ui-container-card-meta">{short_container_id(container.id)}</span>
+                        </div>
+                      </div>
                     </div>
-                    <.button
-                      variant="ghost"
-                      size="sm"
-                      phx-click="kill_container"
-                      phx-value-id={container.id}
-                    >
-                      Kill container
-                    </.button>
-                  </div>
+                  </.link>
                 </section>
               </div>
             </aside>
@@ -825,21 +824,26 @@ defmodule HiveWeb.ChatLive do
   defp sender_label("human"), do: "You"
   defp sender_label(sender), do: sender
 
-  defp dm_display_name("dm:" <> rest) do
-    case String.split(rest, ":", parts: 2) do
-      [a, b] -> "#{a} <-> #{b}"
-      _ -> rest
-    end
+  defp dm_display_name("dm:" <> _ = name) do
+    other = dm_other_party(name, "human")
+    "@#{other}"
   end
 
   defp dm_display_name(name), do: name
 
   defdelegate dm_other_party(dm_name, self_name), to: Hive.Util
 
-  defp typing_summary([agent]), do: "#{agent} is typing"
-  defp typing_summary([first, second]), do: "#{first}, #{second} are typing"
-  defp typing_summary([first, second, third]), do: "#{first}, #{second}, and #{third} are typing"
-  defp typing_summary(_agents), do: "Several agents are typing"
+  defp thinking_summary([agent]), do: "#{agent} is thinking"
+  defp thinking_summary([first, second]), do: "#{first}, #{second} are thinking"
+  defp thinking_summary([first, second, third]), do: "#{first}, #{second}, and #{third} are thinking"
+  defp thinking_summary(_agents), do: "Several agents are thinking"
+
+  defp composer_placeholder(nil), do: "Select a conversation..."
+  defp composer_placeholder("dm:" <> _ = name), do: "Message @#{dm_other_party(name, "human")}..."
+  defp composer_placeholder(topic), do: "Message ##{topic}..."
+
+  defp short_container_id(id) when is_binary(id), do: String.slice(id, 0, 12)
+  defp short_container_id(_), do: ""
 
   defp update_typing_agents(typing_agents, agent, true) do
     typing_agents

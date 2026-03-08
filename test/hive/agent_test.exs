@@ -467,8 +467,8 @@ defmodule Hive.AgentTest do
       # Inject idle status to stop typing
       inject_port_message(pid, port, Jason.encode!(%{"type" => "status", "status" => "idle"}))
 
-      # Should receive typing=false broadcast
-      assert_receive {:typing, %{topic: ^topic_name, agent: ^name, typing: false}}, 1_000
+      # Should receive typing=false broadcast (after 3s grace period)
+      assert_receive {:typing, %{topic: ^topic_name, agent: ^name, typing: false}}, 5_000
 
       on_exit(fn -> Hive.Persistence.delete_agent(name) end)
     end

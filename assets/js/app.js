@@ -268,6 +268,44 @@ const MentionProfileCard = {
   }
 }
 
+const ImageLightbox = {
+  show(src) {
+    if (this.el) this.hide()
+
+    const overlay = document.createElement("div")
+    overlay.className = "ui-lightbox"
+
+    const closeBtn = document.createElement("button")
+    closeBtn.className = "ui-lightbox__close"
+    closeBtn.innerHTML = "&#215;"
+    closeBtn.setAttribute("aria-label", "Close")
+    closeBtn.addEventListener("click", (e) => { e.stopPropagation(); this.hide() })
+    overlay.appendChild(closeBtn)
+
+    const img = document.createElement("img")
+    img.className = "ui-lightbox__img"
+    img.src = src
+    overlay.appendChild(img)
+
+    overlay.addEventListener("click", () => this.hide())
+
+    this._onKeydown = (e) => {
+      if (e.key === "Escape") this.hide()
+    }
+    document.addEventListener("keydown", this._onKeydown)
+
+    document.body.appendChild(overlay)
+    this.el = overlay
+  },
+
+  hide() {
+    if (!this.el) return
+    document.removeEventListener("keydown", this._onKeydown)
+    this.el.remove()
+    this.el = null
+  }
+}
+
 const Hooks = {
   Terminal: {
     mounted() {
@@ -369,6 +407,14 @@ const Hooks = {
       }
 
       this.handleClick = (event) => {
+        // Image lightbox
+        const img = event.target.closest(".ui-markdown img")
+        if (img && this.el.contains(img)) {
+          event.preventDefault()
+          ImageLightbox.show(img.src)
+          return
+        }
+
         const mention = event.target.closest(".ui-mention[data-agent-name]")
         if (!mention || !this.el.contains(mention)) return
 

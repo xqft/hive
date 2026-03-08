@@ -284,7 +284,7 @@ defmodule HiveWeb.ChatLiveTest do
       send(view.pid, {:typing, %{topic: topic, agent: "alice", typing: true}})
       send(view.pid, {:typing, %{topic: topic, agent: "bob", typing: true}})
 
-      assert has_element?(view, "#typing-indicator", "alice, bob are typing")
+      assert has_element?(view, "#typing-indicator", "alice, bob are thinking")
     end
 
     test "container events update the sidebar immediately", %{conn: conn} do
