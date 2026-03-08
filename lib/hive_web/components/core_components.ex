@@ -56,13 +56,13 @@ defmodule HiveWeb.CoreComponents do
       id={@id}
       phx-click={JS.push("lv:clear-flash", value: %{key: @kind}) |> hide("##{@id}")}
       role="alert"
-      class="toast toast-top toast-end z-50"
+      class="pointer-events-none fixed right-4 top-4 z-50"
       {@rest}
     >
       <div class={[
-        "alert w-80 sm:w-96 max-w-80 sm:max-w-96 text-wrap",
-        @kind == :info && "alert-info",
-        @kind == :error && "alert-error"
+        "ui-flash pointer-events-auto flex w-[22rem] max-w-[calc(100vw-2rem)] items-start gap-3 rounded-2xl border px-4 py-3 shadow-[0_24px_64px_rgba(15,23,42,0.18)] backdrop-blur-xl",
+        @kind == :info && "ui-flash--info",
+        @kind == :error && "ui-flash--error"
       ]}>
         <.icon :if={@kind == :info} name="hero-information-circle" class="size-5 shrink-0" />
         <.icon :if={@kind == :error} name="hero-exclamation-circle" class="size-5 shrink-0" />
@@ -88,18 +88,32 @@ defmodule HiveWeb.CoreComponents do
       <.button phx-click="go" variant="primary">Send!</.button>
       <.button navigate={~p"/"}>Home</.button>
   """
-  attr :rest, :global, include: ~w(href navigate patch method download name value disabled)
+  attr :rest, :global, include: ~w(href navigate patch method download name value disabled type)
   attr :class, :any
-  attr :variant, :string, values: ~w(primary)
+  attr :variant, :string, values: ~w(primary secondary ghost danger)
+  attr :size, :string, values: ~w(sm md), default: "md"
   slot :inner_block, required: true
 
   def button(%{rest: rest} = assigns) do
-    variants = %{"primary" => "btn-primary", nil => "btn-primary btn-soft"}
+    variants = %{
+      "primary" => "ui-button ui-button--primary",
+      "secondary" => "ui-button ui-button--secondary",
+      "ghost" => "ui-button ui-button--ghost",
+      "danger" => "ui-button ui-button--danger",
+      nil => "ui-button ui-button--secondary"
+    }
+
+    sizes = %{
+      "sm" => "ui-button--sm",
+      "md" => "ui-button--md"
+    }
 
     assigns =
-      assign_new(assigns, :class, fn ->
-        ["btn", Map.fetch!(variants, assigns[:variant])]
-      end)
+      assign(assigns, :class, [
+        Map.fetch!(variants, assigns[:variant]),
+        Map.fetch!(sizes, assigns.size),
+        assigns[:class]
+      ])
 
     if rest[:href] || rest[:navigate] || rest[:patch] do
       ~H"""
@@ -114,6 +128,75 @@ defmodule HiveWeb.CoreComponents do
       </button>
       """
     end
+  end
+
+  @doc """
+  Renders the shared application shell.
+  """
+  attr :current, :atom, required: true
+  attr :title, :string, required: true
+  attr :subtitle, :string, default: nil
+  slot :actions
+  slot :inner_block, required: true
+
+  def app_shell(assigns) do
+    assigns =
+      assign(assigns, :nav_items, [
+        %{key: :chat, label: "Chat", href: "/", icon: "hero-chat-bubble-left-right"},
+        %{key: :dashboard, label: "Overview", href: "/dashboard", icon: "hero-squares-2x2"},
+        %{key: :agents, label: "Agents", href: "/agents", icon: "hero-users"},
+        %{key: :mcp, label: "MCP", href: "/mcp", icon: "hero-command-line"}
+      ])
+
+    ~H"""
+    <div class="ui-shell">
+      <aside class="ui-sidebar">
+        <div>
+          <div class="ui-brand">
+            <div class="ui-brand__mark">H</div>
+            <div>
+              <p class="ui-brand__eyebrow">Workspace</p>
+              <p class="ui-brand__title">Hive</p>
+            </div>
+          </div>
+
+          <nav class="ui-nav" aria-label="Primary navigation">
+            <.link
+              :for={item <- @nav_items}
+              navigate={item.href}
+              class={["ui-nav-link", @current == item.key && "is-active"]}
+            >
+              <.icon name={item.icon} class="size-4 shrink-0" />
+              <span>{item.label}</span>
+            </.link>
+          </nav>
+        </div>
+
+        <div class="ui-sidebar__footer">
+          <p class="ui-sidebar__label">Theme</p>
+          <HiveWeb.Layouts.theme_toggle />
+        </div>
+      </aside>
+
+      <div class="ui-workspace">
+        <header class="ui-workspace__header">
+          <div>
+            <p class="ui-page-eyebrow">Agent orchestration</p>
+            <h1 class="ui-page-title">{@title}</h1>
+            <p :if={@subtitle} class="ui-page-subtitle">{@subtitle}</p>
+          </div>
+
+          <div :if={@actions != []} class="flex items-center gap-3">
+            {render_slot(@actions)}
+          </div>
+        </header>
+
+        <main class="ui-workspace__body">
+          {render_slot(@inner_block)}
+        </main>
+      </div>
+    </div>
+    """
   end
 
   @doc """
@@ -235,11 +318,13 @@ defmodule HiveWeb.CoreComponents do
     ~H"""
     <div class="fieldset mb-2">
       <label for={@id}>
-        <span :if={@label} class="label mb-1">{@label}</span>
+        <span :if={@label} class="mb-2 block text-sm font-medium text-[var(--ui-text-strong)]">
+          {@label}
+        </span>
         <select
           id={@id}
           name={@name}
-          class={[@class || "w-full select", @errors != [] && (@error_class || "select-error")]}
+          class={[@class || "ui-input w-full", @errors != [] && (@error_class || "ui-input--error")]}
           multiple={@multiple}
           {@rest}
         >
@@ -256,13 +341,15 @@ defmodule HiveWeb.CoreComponents do
     ~H"""
     <div class="fieldset mb-2">
       <label for={@id}>
-        <span :if={@label} class="label mb-1">{@label}</span>
+        <span :if={@label} class="mb-2 block text-sm font-medium text-[var(--ui-text-strong)]">
+          {@label}
+        </span>
         <textarea
           id={@id}
           name={@name}
           class={[
-            @class || "w-full textarea",
-            @errors != [] && (@error_class || "textarea-error")
+            @class || "ui-textarea w-full",
+            @errors != [] && (@error_class || "ui-input--error")
           ]}
           {@rest}
         >{Phoenix.HTML.Form.normalize_value("textarea", @value)}</textarea>
@@ -277,15 +364,17 @@ defmodule HiveWeb.CoreComponents do
     ~H"""
     <div class="fieldset mb-2">
       <label for={@id}>
-        <span :if={@label} class="label mb-1">{@label}</span>
+        <span :if={@label} class="mb-2 block text-sm font-medium text-[var(--ui-text-strong)]">
+          {@label}
+        </span>
         <input
           type={@type}
           name={@name}
           id={@id}
           value={Phoenix.HTML.Form.normalize_value(@type, @value)}
           class={[
-            @class || "w-full input",
-            @errors != [] && (@error_class || "input-error")
+            @class || "ui-input w-full",
+            @errors != [] && (@error_class || "ui-input--error")
           ]}
           {@rest}
         />
@@ -316,10 +405,10 @@ defmodule HiveWeb.CoreComponents do
     ~H"""
     <header class={[@actions != [] && "flex items-center justify-between gap-6", "pb-4"]}>
       <div>
-        <h1 class="text-lg font-semibold leading-8">
+        <h1 class="text-lg font-semibold leading-8 text-[var(--ui-text-strong)]">
           {render_slot(@inner_block)}
         </h1>
-        <p :if={@subtitle != []} class="text-sm text-base-content/70">
+        <p :if={@subtitle != []} class="text-sm text-[var(--ui-text-soft)]">
           {render_slot(@subtitle)}
         </p>
       </div>

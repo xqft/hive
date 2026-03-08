@@ -24,27 +24,30 @@ defmodule HiveWeb.AgentEditorLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="p-6">
-      <h1 class="text-2xl font-bold mb-6">Agents</h1>
+    <Layouts.app flash={@flash}>
+      <.app_shell
+        current={:agents}
+        title="Agents"
+        subtitle="Define identity, capabilities, and MCP access in one place."
+      >
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- Left: Agent list -->
+          <div class="col-span-1 ui-card">
+            <.button phx-click="new_agent" class="w-full mb-4">New agent</.button>
 
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Left: Agent list -->
-        <div class="col-span-1">
-          <button phx-click="new_agent" class="btn btn-primary btn-sm w-full mb-4">
-            + New Agent
-          </button>
+            <div :if={@agents == []} class="ui-empty">
+              No agents yet. Create one to get started.
+            </div>
 
-          <div :if={@agents == []} class="text-sm text-base-content/50 text-center py-4">
-            No agents yet. Create one to get started.
-          </div>
-
-          <div
-            :for={agent <- @agents}
-            phx-click="select_agent"
-            phx-value-name={agent.name}
-            class={"card bg-base-100 shadow-sm mb-2 cursor-pointer hover:shadow-md transition-shadow #{if @selected_agent == agent.name, do: "ring-2 ring-primary"}"}
-          >
-            <div class="card-body p-3">
+            <div
+              :for={agent <- @agents}
+              phx-click="select_agent"
+              phx-value-name={agent.name}
+              class={[
+                "ui-card mb-2 cursor-pointer",
+                @selected_agent == agent.name && "ring-2 ring-[var(--ui-accent)]"
+              ]}
+            >
               <div class="flex items-center justify-between">
                 <div class="font-semibold">{agent.name}</div>
                 <div class={"w-2 h-2 rounded-full #{status_dot(agent.name)}"}></div>
@@ -52,25 +55,23 @@ defmodule HiveWeb.AgentEditorLive do
               <div class="text-xs text-base-content/50 line-clamp-2">{agent.description}</div>
             </div>
           </div>
-        </div>
-        
+
     <!-- Right: Editor form -->
-        <div class="col-span-1 lg:col-span-2">
-          <div class="card bg-base-100 shadow-sm">
-            <div class="card-body">
-              <h2 class="card-title text-lg mb-2">
+          <div class="col-span-1 lg:col-span-2">
+            <div class="ui-card">
+              <h2 class="text-lg font-semibold mb-4 text-[var(--ui-text-strong)]">
                 {if @editing_existing, do: "Edit Agent: #{@form_name}", else: "New Agent"}
               </h2>
 
               <form phx-submit="save_agent" phx-change="validate">
                 <div class="form-control mb-4">
-                  <label class="label">
-                    <span class="label-text font-medium">Name</span>
+                  <label class="mb-2 block text-sm font-medium text-[var(--ui-text-strong)]">
+                    Name
                   </label>
                   <input
                     name="name"
                     value={@form_name}
-                    class={"input input-bordered w-full #{if @name_error, do: "input-error"}"}
+                    class={["ui-input w-full", @name_error && "ui-input--error"]}
                     disabled={@editing_existing}
                     placeholder="e.g. researcher, coder-01"
                   />
@@ -84,46 +85,52 @@ defmodule HiveWeb.AgentEditorLive do
                 </div>
 
                 <div class="form-control mb-4">
-                  <label class="label">
-                    <span class="label-text font-medium">Description</span>
+                  <label class="mb-2 block text-sm font-medium text-[var(--ui-text-strong)]">
+                    Description
                   </label>
                   <input
                     name="description"
                     value={@form_description}
-                    class="input input-bordered w-full"
+                    class="ui-input w-full"
                     placeholder="Brief description of the agent's role"
                   />
                 </div>
 
                 <div class="form-control mb-4">
-                  <label class="label">
-                    <span class="label-text font-medium">Personality / CLAUDE.md</span>
-                    <button
+                  <div class="mb-2 flex items-center justify-between gap-3">
+                    <label class="text-sm font-medium text-[var(--ui-text-strong)]">
+                      Personality / CLAUDE.md
+                    </label>
+                    <.button
                       type="button"
                       phx-click="generate_personality"
-                      class="btn btn-xs btn-outline btn-secondary"
+                      variant="secondary"
+                      size="sm"
                       disabled={@generating}
                     >
                       <span :if={@generating} class="loading loading-spinner loading-xs"></span>
                       {if @generating, do: "Generating...", else: "Generate with AI"}
-                    </button>
-                  </label>
+                    </.button>
+                  </div>
                   <textarea
                     name="personality"
-                    class="textarea textarea-bordered w-full h-48 font-mono text-sm"
+                    class="ui-textarea w-full h-48 font-mono text-sm"
                     placeholder="Instructions, personality, objectives..."
                   >{@form_personality}</textarea>
                 </div>
-                
+
     <!-- MCP Server assignment -->
                 <div class="form-control mb-4">
-                  <label class="label">
-                    <span class="label-text font-medium">MCP Servers</span>
+                  <label class="mb-2 block text-sm font-medium text-[var(--ui-text-strong)]">
+                    MCP Servers
                   </label>
                   <div :if={@mcp_servers == []} class="text-sm text-base-content/50">
                     No MCP servers installed. <a href="/mcp" class="link link-primary">Install one</a>.
                   </div>
-                  <div :for={mcp <- @mcp_servers} class="rounded-lg border border-base-300 p-3 mb-2">
+                  <div
+                    :for={mcp <- @mcp_servers}
+                    class="rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-3 mb-2"
+                  >
                     <label class="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
@@ -136,15 +143,13 @@ defmodule HiveWeb.AgentEditorLive do
                       <span class="text-xs text-base-content/50">{mcp.description}</span>
                     </label>
                     <div :if={mcp.name in @assigned_mcps} class="mt-2 ml-7">
-                      <label class="label">
-                        <span class="label-text text-xs">
-                          Allowed tools (comma-separated, blank = all)
-                        </span>
+                      <label class="mb-2 block text-xs font-medium text-[var(--ui-text-soft)]">
+                        Allowed tools (comma-separated, blank = all)
                       </label>
                       <input
                         name={"mcp_tools[#{mcp.name}]"}
                         value={Map.get(@assigned_mcp_tools, mcp.name, "")}
-                        class="input input-bordered input-sm w-full"
+                        class="ui-input w-full"
                         placeholder="tool1, tool2, ..."
                       />
                     </div>
@@ -152,28 +157,28 @@ defmodule HiveWeb.AgentEditorLive do
                 </div>
 
                 <div class="flex gap-2 mt-6">
-                  <button type="submit" class="btn btn-primary">
+                  <.button type="submit">
                     {if @editing_existing, do: "Update", else: "Create"}
-                  </button>
-                  <button
+                  </.button>
+                  <.button
                     :if={@editing_existing}
                     type="button"
                     phx-click="delete_agent"
-                    class="btn btn-error btn-outline"
+                    variant="danger"
                     data-confirm="Are you sure you want to delete this agent?"
                   >
                     Delete
-                  </button>
-                  <button type="button" phx-click="new_agent" class="btn btn-ghost">
+                  </.button>
+                  <.button type="button" phx-click="new_agent" variant="ghost">
                     Cancel
-                  </button>
+                  </.button>
                 </div>
               </form>
             </div>
           </div>
         </div>
-      </div>
-    </div>
+      </.app_shell>
+    </Layouts.app>
     """
   end
 

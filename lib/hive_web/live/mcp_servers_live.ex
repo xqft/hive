@@ -21,27 +21,30 @@ defmodule HiveWeb.McpServersLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="p-6">
-      <h1 class="text-2xl font-bold mb-6">MCP Servers</h1>
+    <Layouts.app flash={@flash}>
+      <.app_shell
+        current={:mcp}
+        title="MCP Servers"
+        subtitle="Install and tune external toolchains without losing a clear overview of ownership."
+      >
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <!-- Left: Server list -->
+          <div class="ui-card">
+            <.button phx-click="new_server" class="w-full mb-4">Install MCP server</.button>
 
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- Left: Server list -->
-        <div>
-          <button phx-click="new_server" class="btn btn-primary btn-sm w-full mb-4">
-            + Install MCP Server
-          </button>
+            <div :if={@mcp_servers == []} class="ui-empty">
+              No MCP servers installed yet.
+            </div>
 
-          <div :if={@mcp_servers == []} class="text-sm text-base-content/50 text-center py-4">
-            No MCP servers installed yet.
-          </div>
-
-          <div
-            :for={server <- @mcp_servers}
-            phx-click="select_server"
-            phx-value-name={server.name}
-            class={"card bg-base-100 shadow-sm mb-2 cursor-pointer hover:shadow-md transition-shadow #{if @selected_server == server.name, do: "ring-2 ring-primary"}"}
-          >
-            <div class="card-body p-3">
+            <div
+              :for={server <- @mcp_servers}
+              phx-click="select_server"
+              phx-value-name={server.name}
+              class={[
+                "ui-card mb-2 cursor-pointer",
+                @selected_server == server.name && "ring-2 ring-[var(--ui-accent)]"
+              ]}
+            >
               <div class="font-semibold">{server.name}</div>
               <div :if={server.description} class="text-xs text-base-content/50 line-clamp-2">
                 {server.description}
@@ -59,25 +62,23 @@ defmodule HiveWeb.McpServersLive do
               </div>
             </div>
           </div>
-        </div>
-        
+
     <!-- Right: Editor form -->
-        <div>
-          <div class="card bg-base-100 shadow-sm">
-            <div class="card-body">
-              <h2 class="card-title text-lg mb-2">
+          <div>
+            <div class="ui-card">
+              <h2 class="text-lg font-semibold mb-4 text-[var(--ui-text-strong)]">
                 {if @editing_existing, do: "Edit: #{@form_name}", else: "Install MCP Server"}
               </h2>
 
               <form phx-submit="save_server" phx-change="validate">
                 <div class="form-control mb-4">
-                  <label class="label">
-                    <span class="label-text font-medium">Name</span>
+                  <label class="mb-2 block text-sm font-medium text-[var(--ui-text-strong)]">
+                    Name
                   </label>
                   <input
                     name="name"
                     value={@form_name}
-                    class={"input input-bordered w-full #{if @name_error, do: "input-error"}"}
+                    class={["ui-input w-full", @name_error && "ui-input--error"]}
                     disabled={@editing_existing}
                     placeholder="e.g. obsidian-mcp, github-mcp"
                   />
@@ -85,38 +86,38 @@ defmodule HiveWeb.McpServersLive do
                 </div>
 
                 <div class="form-control mb-4">
-                  <label class="label">
-                    <span class="label-text font-medium">Description</span>
+                  <label class="mb-2 block text-sm font-medium text-[var(--ui-text-strong)]">
+                    Description
                   </label>
                   <input
                     name="description"
                     value={@form_description}
-                    class="input input-bordered w-full"
+                    class="ui-input w-full"
                     placeholder="What this MCP server provides"
                   />
                 </div>
 
                 <div class="form-control mb-4">
-                  <label class="label">
-                    <span class="label-text font-medium">Command</span>
+                  <label class="mb-2 block text-sm font-medium text-[var(--ui-text-strong)]">
+                    Command
                   </label>
                   <input
                     name="command"
                     value={@form_command}
-                    class={"input input-bordered w-full font-mono #{if @command_error, do: "input-error"}"}
+                    class={["ui-input w-full font-mono", @command_error && "ui-input--error"]}
                     placeholder="e.g. npx, node, python"
                   />
                   <div :if={@command_error} class="text-error text-sm mt-1">{@command_error}</div>
                 </div>
 
                 <div class="form-control mb-4">
-                  <label class="label">
-                    <span class="label-text font-medium">Args</span>
+                  <label class="mb-2 block text-sm font-medium text-[var(--ui-text-strong)]">
+                    Args
                   </label>
                   <input
                     name="args"
                     value={@form_args}
-                    class={"input input-bordered w-full font-mono #{if @args_error, do: "input-error"}"}
+                    class={["ui-input w-full font-mono", @args_error && "ui-input--error"]}
                     placeholder={~s(e.g. ["-y", "mcp-obsidian", "/path"])}
                   />
                   <div :if={@args_error} class="text-error text-sm mt-1">{@args_error}</div>
@@ -126,13 +127,13 @@ defmodule HiveWeb.McpServersLive do
                 </div>
 
                 <div class="form-control mb-4">
-                  <label class="label">
-                    <span class="label-text font-medium">Environment Variables</span>
+                  <label class="mb-2 block text-sm font-medium text-[var(--ui-text-strong)]">
+                    Environment Variables
                   </label>
                   <input
                     name="env"
                     value={@form_env}
-                    class={"input input-bordered w-full font-mono #{if @env_error, do: "input-error"}"}
+                    class={["ui-input w-full font-mono", @env_error && "ui-input--error"]}
                     placeholder={~s(e.g. {"API_KEY": "sk-..."})}
                   />
                   <div :if={@env_error} class="text-error text-sm mt-1">{@env_error}</div>
@@ -142,28 +143,28 @@ defmodule HiveWeb.McpServersLive do
                 </div>
 
                 <div class="flex gap-2 mt-6">
-                  <button type="submit" class="btn btn-primary">
+                  <.button type="submit">
                     {if @editing_existing, do: "Update", else: "Install"}
-                  </button>
-                  <button
+                  </.button>
+                  <.button
                     :if={@editing_existing}
                     type="button"
                     phx-click="delete_server"
-                    class="btn btn-error btn-outline"
+                    variant="danger"
                     data-confirm={delete_confirm_message(@selected_server)}
                   >
                     Delete
-                  </button>
-                  <button type="button" phx-click="new_server" class="btn btn-ghost">
+                  </.button>
+                  <.button type="button" phx-click="new_server" variant="ghost">
                     Cancel
-                  </button>
+                  </.button>
                 </div>
               </form>
             </div>
           </div>
         </div>
-      </div>
-    </div>
+      </.app_shell>
+    </Layouts.app>
     """
   end
 

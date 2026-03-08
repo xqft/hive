@@ -16,15 +16,24 @@ defmodule HiveWeb.ChatLiveTest do
         :ok
 
       {:error, :name_taken} ->
-        cleanup_topic(name)
-        :ok = Hive.Persistence.create_topic(name, "Test: #{name}", "topic", nil)
+        :ok
     end
 
-    {:ok, pid} =
-      DynamicSupervisor.start_child(
-        Hive.TopicSup,
-        {Hive.Topic, name: name, description: "Test: #{name}", type: :topic, created_by: "test"}
-      )
+    pid =
+      case Registry.lookup(Hive.TopicRegistry, name) do
+        [{existing_pid, _}] ->
+          existing_pid
+
+        [] ->
+          {:ok, started_pid} =
+            DynamicSupervisor.start_child(
+              Hive.TopicSup,
+              {Hive.Topic,
+               name: name, description: "Test: #{name}", type: :topic, created_by: "test"}
+            )
+
+          started_pid
+      end
 
     pid
   end
@@ -36,6 +45,17 @@ defmodule HiveWeb.ChatLiveTest do
     end
 
     Hive.Persistence.delete_topic(name)
+  end
+
+  defp create_agent(name) do
+    case Hive.Persistence.create_agent(name, "Agent #{name}", "Helpful #{name}") do
+      :ok -> :ok
+      {:error, :name_taken} -> :ok
+    end
+  end
+
+  defp cleanup_agent(name) do
+    Hive.Persistence.delete_agent(name)
   end
 
   describe "mount" do
@@ -51,7 +71,7 @@ defmodule HiveWeb.ChatLiveTest do
 
     test "shows Direct Messages section", %{conn: conn} do
       {:ok, _view, html} = live(conn, "/")
-      assert html =~ "Direct Messages"
+      assert html =~ "Direct messages"
     end
 
     test "shows Members section", %{conn: conn} do
@@ -61,9 +81,9 @@ defmodule HiveWeb.ChatLiveTest do
 
     test "shows navigation links", %{conn: conn} do
       {:ok, _view, html} = live(conn, "/")
-      assert html =~ "Dashboard"
+      assert html =~ "Overview"
       assert html =~ "Agents"
-      assert html =~ "MCP Servers"
+      assert html =~ "MCP"
     end
   end
 
@@ -75,8 +95,8 @@ defmodule HiveWeb.ChatLiveTest do
 
       {:ok, view, _html} = live(conn, "/")
 
-      html = view |> element("button[phx-value-name=#{topic}]") |> render_click()
-      assert html =~ topic
+      view |> element("#topic-#{topic}") |> render_click()
+      assert has_element?(view, ".ui-chat-panel__title", "##{topic}")
     end
 
     test "selecting a topic loads its messages", %{conn: conn} do
@@ -89,7 +109,7 @@ defmodule HiveWeb.ChatLiveTest do
 
       {:ok, view, _html} = live(conn, "/")
 
-      html = view |> element("button[phx-value-name=#{topic}]") |> render_click()
+      html = view |> element("#topic-#{topic}") |> render_click()
       assert html =~ "hello from alice in liveview test"
       assert html =~ "alice"
     end
@@ -104,11 +124,11 @@ defmodule HiveWeb.ChatLiveTest do
       {:ok, view, _html} = live(conn, "/")
 
       # Select the topic first
-      view |> element("button[phx-value-name=#{topic}]") |> render_click()
+      view |> element("#topic-#{topic}") |> render_click()
 
       # Submit the message form
       view
-      |> form("form[phx-submit=send_message]", %{text: "hello from liveview"})
+      |> form("#msg-form-0", %{text: "hello from liveview"})
       |> render_submit()
 
       # The PubSub message is delivered asynchronously to the LiveView process.
@@ -122,11 +142,81 @@ defmodule HiveWeb.ChatLiveTest do
 
       # Submit empty message -- should be handled gracefully
       view
-      |> form("form[phx-submit=send_message]", %{text: ""})
+      |> form("#msg-form-0", %{text: ""})
       |> render_submit()
 
       # View should still be alive
       assert render(view) =~ "Hive"
+    end
+
+    test "renders markdown safely", %{conn: conn} do
+      topic = "lv-md-#{:erlang.unique_integer([:positive])}"
+      create_topic(topic)
+      on_exit(fn -> cleanup_topic(topic) end)
+
+      Hive.Topic.post(topic, "alice", "**bold**\n\n`code`\n\n<script>alert('x')</script>")
+
+      {:ok, view, _html} = live(conn, "/")
+
+      view |> element("#topic-#{topic}") |> render_click()
+
+      assert has_element?(view, ".ui-markdown strong", "bold")
+      assert has_element?(view, ".ui-markdown code", "code")
+      refute render(view) =~ "<script>alert('x')</script>"
+    end
+
+    test "exposes agent mention metadata to the chat UI", %{conn: conn} do
+      agent = "mention_agent_#{:erlang.unique_integer([:positive])}"
+
+      create_agent(agent)
+
+      on_exit(fn -> cleanup_agent(agent) end)
+
+      {:ok, _view, html} = live(conn, "/")
+
+      assert html =~ "chat-composer-shell"
+      assert html =~ "data-agent-profiles"
+      assert html =~ agent
+    end
+
+    test "member join event updates sidebar and appends a system message", %{conn: conn} do
+      topic = "lv-join-#{:erlang.unique_integer([:positive])}"
+      create_topic(topic)
+      on_exit(fn -> cleanup_topic(topic) end)
+
+      {:ok, view, _html} = live(conn, "/")
+      view |> element("#topic-#{topic}") |> render_click()
+
+      send(view.pid, {:member_joined, %{topic: topic, agent: "alice", ts: DateTime.utc_now()}})
+
+      html = render(view)
+      assert html =~ "alice joined"
+      assert html =~ "alice"
+    end
+
+    test "typing events render a summary for the active topic", %{conn: conn} do
+      topic = "lv-typing-#{:erlang.unique_integer([:positive])}"
+      create_topic(topic)
+      on_exit(fn -> cleanup_topic(topic) end)
+
+      {:ok, view, _html} = live(conn, "/")
+      view |> element("#topic-#{topic}") |> render_click()
+
+      send(view.pid, {:typing, %{topic: topic, agent: "alice", typing: true}})
+      send(view.pid, {:typing, %{topic: topic, agent: "bob", typing: true}})
+
+      assert has_element?(view, "#typing-indicator", "alice, bob are typing")
+    end
+
+    test "container events update the sidebar immediately", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/")
+
+      send(view.pid, {:started, "builder", "container-123", "Run tests"})
+
+      html = render(view)
+      assert html =~ "container-123"
+      assert html =~ "Run tests"
+      assert html =~ "builder"
     end
   end
 end

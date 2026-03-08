@@ -158,10 +158,10 @@ defmodule Hive.Topic do
     messages = Enum.take([msg | state.messages], @max_buffer)
 
     # Broadcast to PubSub for UI
-    Phoenix.PubSub.broadcast(
-      Hive.PubSub,
+    safe_broadcast(
       "topic:#{state.name}",
-      {:message, %{topic: state.name, sender: sender, body: text, ts: ts}}
+      {:message,
+       %{topic: state.name, sender: sender, sender_kind: msg.sender_kind, body: text, ts: ts}}
     )
 
     # Deliver to subscriber Agent GenServers (skip self)
@@ -184,9 +184,14 @@ defmodule Hive.Topic do
 
   @impl true
   def handle_call({:join, agent_name}, _from, state) do
-    state = %{state | subscribers: MapSet.put(state.subscribers, agent_name)}
+    {state, joined?} = add_subscriber(state, agent_name)
 
-    persist(fn -> Hive.Persistence.subscribe(state.name, agent_name) end)
+    if joined? do
+      safe_broadcast(
+        "topic:#{state.name}",
+        {:member_joined, %{topic: state.name, agent: agent_name, ts: DateTime.utc_now()}}
+      )
+    end
 
     recent = Enum.take(state.messages, 5)
     {:reply, {:ok, recent}, state}
@@ -254,10 +259,12 @@ defmodule Hive.Topic do
       if MapSet.member?(acc.subscribers, agent_name) do
         acc
       else
-        # Auto-invite: add to subscribers and persist
-        acc = %{acc | subscribers: MapSet.put(acc.subscribers, agent_name)}
+        {acc, _joined?} = add_subscriber(acc, agent_name)
 
-        persist(fn -> Hive.Persistence.subscribe(acc.name, agent_name) end)
+        safe_broadcast(
+          "topic:#{acc.name}",
+          {:member_joined, %{topic: acc.name, agent: agent_name, ts: DateTime.utc_now()}}
+        )
 
         # Send last 5 messages as context to the mentioned agent
         context = Enum.take(acc.messages, 5)
@@ -273,6 +280,24 @@ defmodule Hive.Topic do
         acc
       end
     end)
+  end
+
+  defp add_subscriber(state, agent_name) do
+    if MapSet.member?(state.subscribers, agent_name) do
+      {state, false}
+    else
+      next_state = %{state | subscribers: MapSet.put(state.subscribers, agent_name)}
+      persist(fn -> Hive.Persistence.subscribe(next_state.name, agent_name) end)
+      {next_state, true}
+    end
+  end
+
+  defp safe_broadcast(topic, payload) do
+    Phoenix.PubSub.broadcast(Hive.PubSub, topic, payload)
+  rescue
+    _ -> :ok
+  catch
+    :exit, _ -> :ok
   end
 
   defp sender_kind("human"), do: "human"

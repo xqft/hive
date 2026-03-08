@@ -63,7 +63,9 @@ defmodule Hive.MixProject do
       # Hive-specific deps
       {:exqlite, "~> 0.27"},
       {:plug_crypto, "~> 2.1"},
-      {:req, "~> 0.5"}
+      {:req, "~> 0.5"},
+      {:earmark, "~> 1.4"},
+      {:html_sanitize_ex, "~> 1.4"}
     ]
   end
 

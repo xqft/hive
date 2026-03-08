@@ -25,7 +25,8 @@ defmodule Hive.Agent do
     :status,
     :sdk_port,
     :session_id,
-    :mcp_secret
+    :mcp_secret,
+    :active_channel
   ]
 
   # ---------------------------------------------------------------------------
@@ -142,7 +143,8 @@ defmodule Hive.Agent do
       status: :idle,
       sdk_port: sdk_port,
       session_id: nil,
-      mcp_secret: secret
+      mcp_secret: secret,
+      active_channel: nil
     }
 
     {:ok, state}
@@ -188,6 +190,8 @@ defmodule Hive.Agent do
 
   @impl true
   def handle_cast({:deliver_message, topic_name, message}, state) do
+    state = maybe_start_activity(state, "topic", topic_name, message.sender)
+
     if message.sender != state.name do
       send_to_sdk(state, render_message("topic", topic_name, message))
     end
@@ -204,6 +208,8 @@ defmodule Hive.Agent do
 
   @impl true
   def handle_info({:topic_message, topic_name, message}, state) do
+    state = maybe_start_activity(state, "topic", topic_name, message.sender)
+
     if message.sender != state.name do
       send_to_sdk(state, render_message("topic", topic_name, message))
     end
@@ -212,6 +218,8 @@ defmodule Hive.Agent do
   end
 
   def handle_info({:dm_message, channel, message}, state) do
+    state = maybe_start_activity(state, "dm", channel, message.sender)
+
     if message.sender != state.name do
       send_to_sdk(state, render_message("dm", channel, message))
     end
@@ -227,7 +235,10 @@ defmodule Hive.Agent do
   # -- Info: @mention invite from Topic ------------------------------------
 
   def handle_info({:mention_invite, topic_name, recent_messages}, state) do
-    state = %{state | topics: MapSet.put(state.topics, topic_name)}
+    state =
+      state
+      |> Map.put(:topics, MapSet.put(state.topics, topic_name))
+      |> maybe_start_activity("topic", topic_name, "human")
 
     context =
       recent_messages
@@ -259,7 +270,13 @@ defmodule Hive.Agent do
       {:ok, %{"type" => "status", "status" => status}} when status in ["idle", "thinking"] ->
         new_status = String.to_existing_atom(status)
         Phoenix.PubSub.broadcast(Hive.PubSub, "agents", {:status, state.name, new_status})
-        {:noreply, %{state | status: new_status}}
+
+        state =
+          state
+          |> maybe_stop_activity(new_status)
+          |> Map.put(:status, new_status)
+
+        {:noreply, state}
 
       {:ok, %{"type" => "session", "sessionId" => sid}} ->
         {:noreply, %{state | session_id: sid}}
@@ -291,6 +308,7 @@ defmodule Hive.Agent do
       "Agent #{state.name} SDK process exited (code #{code}), restarting with session #{state.session_id}"
     )
 
+    state = stop_active_typing(state)
     new_port = start_sdk_process(state.name, state.session_id)
     state = %{state | sdk_port: new_port}
 
@@ -616,6 +634,44 @@ defmodule Hive.Agent do
   defp format_timestamp(%DateTime{} = timestamp), do: DateTime.to_iso8601(timestamp)
   defp format_timestamp(timestamp) when is_binary(timestamp), do: timestamp
   defp format_timestamp(_timestamp), do: "unknown"
+
+  defp maybe_start_activity(state, channel_type, channel_name, sender) do
+    if sender == state.name do
+      state
+    else
+      next_state = stop_active_typing(state)
+      channel = {channel_type, channel_name}
+
+      safe_broadcast(
+        "topic:#{channel_name}",
+        {:typing, %{topic: channel_name, agent: state.name, typing: true}}
+      )
+
+      %{next_state | active_channel: channel}
+    end
+  end
+
+  defp maybe_stop_activity(state, :idle), do: stop_active_typing(state)
+  defp maybe_stop_activity(state, _status), do: state
+
+  defp stop_active_typing(%{active_channel: nil} = state), do: state
+
+  defp stop_active_typing(%{active_channel: {_channel_type, channel_name}} = state) do
+    safe_broadcast(
+      "topic:#{channel_name}",
+      {:typing, %{topic: channel_name, agent: state.name, typing: false}}
+    )
+
+    %{state | active_channel: nil}
+  end
+
+  defp safe_broadcast(topic, payload) do
+    Phoenix.PubSub.broadcast(Hive.PubSub, topic, payload)
+  rescue
+    _ -> :ok
+  catch
+    :exit, _ -> :ok
+  end
 
   defp infer_sender_kind("human"), do: "human"
   defp infer_sender_kind(_sender), do: "agent"

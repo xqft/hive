@@ -21,34 +21,40 @@ defmodule HiveWeb.ContainerLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="p-6">
-      <div class="flex justify-between items-center mb-4">
-        <div class="flex items-center gap-3">
-          <h1 class="text-xl font-bold font-mono">{@container_id}</h1>
-          <.container_status_badge status={@status} />
-        </div>
-        <div class="flex gap-2">
-          <button
+    <Layouts.app flash={@flash}>
+      <.app_shell
+        current={:dashboard}
+        title="Container"
+        subtitle="Live runtime output with a quieter, terminal-forward presentation."
+      >
+        <:actions>
+          <.button
             :if={@status == :running}
             phx-click="kill"
-            class="btn btn-error btn-sm"
+            variant="danger"
             data-confirm="Kill this container?"
           >
             Kill
-          </button>
-          <.link navigate={~p"/dashboard"} class="btn btn-ghost btn-sm">Back</.link>
-        </div>
-      </div>
+          </.button>
+          <.button navigate={~p"/dashboard"} variant="ghost">Back</.button>
+        </:actions>
 
-      <div
-        class="mockup-code bg-base-300 overflow-y-auto max-h-[75vh]"
-        id="output"
-        phx-hook="ScrollBottom"
-      >
-        <pre :for={line <- @output}><code>{line}</code></pre>
-        <pre :if={@output == []}><code class="text-base-content/50">Waiting for output...</code></pre>
-      </div>
-    </div>
+        <div class="ui-stack">
+          <div class="ui-card ui-section-row">
+            <div>
+              <p class="ui-section-label">Container id</p>
+              <p class="mt-1 font-mono text-lg text-[var(--ui-text-strong)]">{@container_id}</p>
+            </div>
+            <.container_status_badge status={@status} />
+          </div>
+
+          <div class="ui-code-terminal" id="output" phx-hook="ScrollBottom">
+            <pre :for={line <- @output}><code>{line}</code></pre>
+            <pre :if={@output == []}><code class="text-slate-400">Waiting for output...</code></pre>
+          </div>
+        </div>
+      </.app_shell>
+    </Layouts.app>
     """
   end
 
@@ -56,10 +62,12 @@ defmodule HiveWeb.ContainerLive do
 
   defp container_status_badge(assigns) do
     ~H"""
-    <span :if={@status == :running} class="badge badge-info badge-sm animate-pulse">running</span>
-    <span :if={@status == :completed} class="badge badge-success badge-sm">completed</span>
-    <span :if={@status == :failed} class="badge badge-error badge-sm">failed</span>
-    <span :if={@status == :not_found} class="badge badge-ghost badge-sm">not found</span>
+    <span :if={@status == :running} class="ui-pill" style="color: var(--ui-warning)">running</span>
+    <span :if={@status == :completed} class="ui-pill" style="color: var(--ui-success)">
+      completed
+    </span>
+    <span :if={@status == :failed} class="ui-pill" style="color: var(--ui-danger)">failed</span>
+    <span :if={@status == :not_found} class="ui-pill">not found</span>
     """
   end
 

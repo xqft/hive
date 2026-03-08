@@ -24,68 +24,106 @@ defmodule HiveWeb.DashboardLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="p-6">
-      <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-bold">Dashboard</h1>
-        <.link navigate={~p"/agents"} class="btn btn-primary btn-sm">+ New Agent</.link>
-      </div>
+    <Layouts.app flash={@flash}>
+      <.app_shell
+        current={:dashboard}
+        title="Overview"
+        subtitle="A compact control plane for agents, containers, and the current runtime state."
+      >
+        <:actions>
+          <.button navigate={~p"/agents"}>New agent</.button>
+        </:actions>
 
-      <h2 class="text-lg font-semibold mb-3">Agents</h2>
-      <div :if={@agents == []} class="text-base-content/50 mb-8">No agents configured.</div>
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-        <div :for={agent <- @agents} class="card bg-base-200 shadow-sm">
-          <div class="card-body p-4">
-            <div class="flex items-center justify-between">
-              <h3 class="card-title text-base">{agent.name}</h3>
-              <.status_badge status={Map.get(@statuses, agent.name, :unknown)} />
+        <div class="ui-stack">
+          <section class="ui-card-grid">
+            <div class="ui-card ui-card--stat">
+              <p class="ui-section-label">Agents</p>
+              <p class="ui-metric">{length(@agents)}</p>
+              <p class="ui-helper-text">Configured workers available in the workspace.</p>
             </div>
-            <p class="text-sm text-base-content/70 line-clamp-2">{agent.description}</p>
-            <div class="card-actions justify-end mt-2">
-              <.link navigate={~p"/agents"} class="btn btn-ghost btn-xs">
-                Edit
-              </.link>
-              <button
-                phx-click="restart_agent"
-                phx-value-name={agent.name}
-                class="btn btn-outline btn-xs"
-                data-confirm={"Restart agent #{agent.name}?"}
-              >
-                Restart
-              </button>
+            <div class="ui-card ui-card--stat">
+              <p class="ui-section-label">Thinking</p>
+              <p class="ui-metric">
+                {Enum.count(@statuses, fn {_name, status} -> status == :thinking end)}
+              </p>
+              <p class="ui-helper-text">Agents actively working right now.</p>
             </div>
-          </div>
-        </div>
-      </div>
+            <div class="ui-card ui-card--stat">
+              <p class="ui-section-label">Containers</p>
+              <p class="ui-metric">{length(@containers)}</p>
+              <p class="ui-helper-text">Running containers tied to active jobs.</p>
+            </div>
+          </section>
 
-      <h2 class="text-lg font-semibold mb-3">Active Containers</h2>
-      <div :if={@containers == []} class="text-base-content/50">No active containers.</div>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div :for={c <- @containers} class="card bg-base-200 shadow-sm">
-          <div class="card-body p-4">
-            <div class="flex items-center justify-between">
-              <.link navigate={~p"/containers/#{c.id}"} class="font-mono text-sm link link-hover">
-                {c.id}
-              </.link>
-              <span class="badge badge-neutral badge-sm">{c.agent}</span>
+          <section class="ui-card ui-stack">
+            <.header>
+              Agents
+              <:subtitle>Quick status scan with direct actions.</:subtitle>
+            </.header>
+            <div :if={@agents == []} class="ui-empty">No agents configured yet.</div>
+            <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div :for={agent <- @agents} class="ui-card ui-stack">
+                <div class="ui-section-row">
+                  <div>
+                    <p class="font-semibold text-[var(--ui-text-strong)]">{agent.name}</p>
+                    <p class="ui-helper-text line-clamp-2">{agent.description}</p>
+                  </div>
+                  <.status_badge status={Map.get(@statuses, agent.name, :unknown)} />
+                </div>
+                <div class="ui-section-row">
+                  <.button navigate={~p"/agents"} variant="ghost" size="sm">Edit</.button>
+                  <.button
+                    variant="secondary"
+                    size="sm"
+                    phx-click="restart_agent"
+                    phx-value-name={agent.name}
+                    data-confirm={"Restart agent #{agent.name}?"}
+                  >
+                    Restart
+                  </.button>
+                </div>
+              </div>
             </div>
-            <p class="text-sm text-base-content/70 truncate">{c.task}</p>
-            <div class="card-actions justify-end mt-2">
-              <button
-                phx-click="kill_container"
-                phx-value-id={c.id}
-                class="btn btn-error btn-xs"
-                data-confirm={"Kill container #{c.id}?"}
-              >
-                Kill
-              </button>
-              <.link navigate={~p"/containers/#{c.id}"} class="btn btn-ghost btn-xs">
-                View Output
-              </.link>
+          </section>
+
+          <section class="ui-card ui-stack">
+            <.header>
+              Active containers
+              <:subtitle>Runtime tasks with immediate kill and inspect actions.</:subtitle>
+            </.header>
+            <div :if={@containers == []} class="ui-empty">No active containers.</div>
+            <div class="grid gap-4 lg:grid-cols-2">
+              <div :for={c <- @containers} class="ui-card ui-stack">
+                <div class="ui-section-row">
+                  <.link
+                    navigate={~p"/containers/#{c.id}"}
+                    class="font-mono text-sm text-[var(--ui-text-strong)]"
+                  >
+                    {c.id}
+                  </.link>
+                  <span class="ui-pill">{c.agent}</span>
+                </div>
+                <p class="text-sm text-[var(--ui-text-soft)]">{c.task}</p>
+                <div class="ui-section-row">
+                  <.button
+                    variant="danger"
+                    size="sm"
+                    phx-click="kill_container"
+                    phx-value-id={c.id}
+                    data-confirm={"Kill container #{c.id}?"}
+                  >
+                    Kill
+                  </.button>
+                  <.button navigate={~p"/containers/#{c.id}"} variant="ghost" size="sm">
+                    View output
+                  </.button>
+                </div>
+              </div>
             </div>
-          </div>
+          </section>
         </div>
-      </div>
-    </div>
+      </.app_shell>
+    </Layouts.app>
     """
   end
 
@@ -93,11 +131,9 @@ defmodule HiveWeb.DashboardLive do
 
   defp status_badge(assigns) do
     ~H"""
-    <span :if={@status == :idle} class="badge badge-success badge-sm">idle</span>
-    <span :if={@status == :thinking} class="badge badge-warning badge-sm animate-pulse">
-      thinking
-    </span>
-    <span :if={@status == :unknown} class="badge badge-ghost badge-sm">offline</span>
+    <span :if={@status == :idle} class="ui-pill" style="color: var(--ui-success)">idle</span>
+    <span :if={@status == :thinking} class="ui-pill" style="color: var(--ui-warning)">thinking</span>
+    <span :if={@status == :unknown} class="ui-pill">offline</span>
     """
   end
 
