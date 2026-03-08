@@ -433,7 +433,9 @@ defmodule Hive.Container do
           "-p",
           prompt,
           "--output-format",
-          "json"
+          "json",
+          "--settings",
+          ~s({"effortLevel":"max"})
         ]
 
     try do
