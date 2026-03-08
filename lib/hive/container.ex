@@ -431,24 +431,37 @@ defmodule Hive.Container do
 
     case System.cmd(docker, docker_args, stderr_to_stdout: true) do
       {_, 0} ->
-        # Step 2: Write prompt to temp file and copy into container
+        # Step 2: Wait for tmux session to be ready
+        wait_for_tmux(docker, state.id)
+
+        # Step 3: Write prompt to temp file and copy into container
         tmp = "/tmp/#{state.id}_task.txt"
         File.write!(tmp, prompt)
-        System.cmd(docker, ["cp", tmp, "#{state.id}:/tmp/task.txt"], stderr_to_stdout: true)
+
+        case System.cmd(docker, ["cp", tmp, "#{state.id}:/tmp/task.txt"],
+               stderr_to_stdout: true
+             ) do
+          {_, 0} -> :ok
+          {cp_out, _} -> Logger.warning("docker cp failed for #{state.id}: #{String.trim(cp_out)}")
+        end
+
         File.rm(tmp)
 
-        # Step 3: Launch Claude Code in the tmux session
+        # Step 4: Launch Claude Code in the tmux session
         claude_cmd =
           "claude --dangerously-skip-permissions --output-format json " <>
             "--settings '{\"effortLevel\":\"max\"}' -p \"$(cat /tmp/task.txt)\""
 
-        System.cmd(
-          docker,
-          ["exec", state.id, "tmux", "send-keys", "-t", "main", claude_cmd, "Enter"],
-          stderr_to_stdout: true
-        )
+        case System.cmd(
+               docker,
+               ["exec", state.id, "tmux", "send-keys", "-t", "main", claude_cmd, "Enter"],
+               stderr_to_stdout: true
+             ) do
+          {_, 0} -> :ok
+          {exec_out, _} -> Logger.warning("tmux send-keys failed for #{state.id}: #{String.trim(exec_out)}")
+        end
 
-        # Step 4: Monitor container exit in background
+        # Step 5: Monitor container exit in background
         self_pid = self()
 
         Task.start(fn ->
@@ -463,6 +476,24 @@ defmodule Hive.Container do
     end
   rescue
     e -> {:error, format_reason(e)}
+  end
+
+  # Poll until the tmux session is ready (up to 3 seconds)
+  defp wait_for_tmux(docker, container_id, attempts \\ 15) do
+    case System.cmd(docker, ["exec", container_id, "tmux", "has-session", "-t", "main"],
+           stderr_to_stdout: true
+         ) do
+      {_, 0} ->
+        :ok
+
+      _ when attempts > 0 ->
+        Process.sleep(200)
+        wait_for_tmux(docker, container_id, attempts - 1)
+
+      _ ->
+        Logger.warning("tmux session not ready after timeout for #{container_id}")
+        :timeout
+    end
   end
 
   defp build_prompt(task_input) do

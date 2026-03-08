@@ -60,6 +60,9 @@ case "$1" in
     case "$1" in
       tmux)
         case "$2" in
+          has-session)
+            exit 0
+            ;;
           send-keys)
             exit 0
             ;;
