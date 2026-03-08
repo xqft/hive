@@ -364,21 +364,23 @@ defmodule Hive.ContainerTest do
     test "rejects when API key is missing" do
       use_mock_docker()
       put_hive_env(:anthropic_api_key, "")
+      put_hive_env(:claude_oauth_token, nil)
 
       assert {:error, msg} =
                Hive.Container.start("container-test-agent", %{"task" => "hello"})
 
-      assert msg =~ "ANTHROPIC_API_KEY is not configured"
+      assert msg =~ "Neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN is configured"
     end
 
     test "rejects when API key is nil" do
       use_mock_docker()
       put_hive_env(:anthropic_api_key, nil)
+      put_hive_env(:claude_oauth_token, nil)
 
       assert {:error, msg} =
                Hive.Container.start("container-test-agent", %{"task" => "hello"})
 
-      assert msg =~ "ANTHROPIC_API_KEY is not configured"
+      assert msg =~ "Neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN is configured"
     end
   end
 

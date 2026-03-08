@@ -533,13 +533,14 @@ defmodule HiveWeb.ToolsControllerTest do
 
     test "rejects when api key is missing", %{conn: conn} do
       put_hive_env(:anthropic_api_key, nil)
+      put_hive_env(:claude_oauth_token, nil)
 
       body =
         conn
         |> tool_call("test-agent", "execute_in_container", %{"task" => "run tests"})
         |> json_response(200)
 
-      assert body == %{"ok" => false, "error" => "ANTHROPIC_API_KEY is not configured"}
+      assert body == %{"ok" => false, "error" => "Neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN is configured"}
     end
   end
 

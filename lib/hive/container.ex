@@ -421,21 +421,20 @@ defmodule Hive.Container do
   defp open_container_port(state) do
     prompt = build_prompt(state.task_input)
 
-    docker_args = [
-      "run",
-      "--rm",
-      "--name",
-      state.id,
-      "--env",
-      "ANTHROPIC_API_KEY=#{api_key()}",
-      "--network",
-      "bridge",
-      image_name(),
-      "-p",
-      prompt,
-      "--output-format",
-      "json"
-    ]
+    env_args = auth_env_args()
+
+    docker_args =
+      ["run", "--rm", "--name", state.id] ++
+        env_args ++
+        [
+          "--network",
+          "bridge",
+          image_name(),
+          "-p",
+          prompt,
+          "--output-format",
+          "json"
+        ]
 
     try do
       {:ok,
@@ -529,11 +528,21 @@ defmodule Hive.Container do
   end
 
   defp validate_api_key do
-    if api_key() |> to_string() |> String.trim() == "" do
-      {:error, "ANTHROPIC_API_KEY is not configured"}
+    if api_key() == "" and oauth_token() == "" do
+      {:error, "Neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN is configured"}
     else
       :ok
     end
+  end
+
+  defp auth_env_args do
+    args = []
+    key = api_key()
+    token = oauth_token()
+
+    args = if key != "", do: args ++ ["--env", "ANTHROPIC_API_KEY=#{key}"], else: args
+    args = if token != "", do: args ++ ["--env", "CLAUDE_CODE_OAUTH_TOKEN=#{token}"], else: args
+    args
   end
 
   defp image_name do
@@ -545,6 +554,10 @@ defmodule Hive.Container do
   defp format_reason(reason), do: inspect(reason)
 
   defp api_key do
-    Application.get_env(:hive, :anthropic_api_key) || ""
+    Application.get_env(:hive, :anthropic_api_key) |> to_string() |> String.trim()
+  end
+
+  defp oauth_token do
+    Application.get_env(:hive, :claude_oauth_token) |> to_string() |> String.trim()
   end
 end
