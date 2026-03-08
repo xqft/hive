@@ -528,21 +528,16 @@ defmodule Hive.Container do
   end
 
   defp validate_api_key do
-    if api_key() == "" and oauth_token() == "" do
-      {:error, "Neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN is configured"}
+    if oauth_token() == "" do
+      {:error, "CLAUDE_CODE_OAUTH_TOKEN is not configured"}
     else
       :ok
     end
   end
 
   defp auth_env_args do
-    args = []
-    key = api_key()
     token = oauth_token()
-
-    args = if key != "", do: args ++ ["--env", "ANTHROPIC_API_KEY=#{key}"], else: args
-    args = if token != "", do: args ++ ["--env", "CLAUDE_CODE_OAUTH_TOKEN=#{token}"], else: args
-    args
+    if token != "", do: ["--env", "CLAUDE_CODE_OAUTH_TOKEN=#{token}"], else: []
   end
 
   defp image_name do
@@ -552,10 +547,6 @@ defmodule Hive.Container do
   defp format_reason({kind, reason}), do: "#{kind}: #{Exception.format_banner(kind, reason)}"
   defp format_reason(reason) when is_binary(reason), do: reason
   defp format_reason(reason), do: inspect(reason)
-
-  defp api_key do
-    Application.get_env(:hive, :anthropic_api_key) |> to_string() |> String.trim()
-  end
 
   defp oauth_token do
     Application.get_env(:hive, :claude_oauth_token) |> to_string() |> String.trim()

@@ -287,7 +287,7 @@ defmodule Hive.PropertyTest do
 
   describe "container validation properties" do
     setup do
-      put_hive_env(:anthropic_api_key, "test-key")
+      put_hive_env(:claude_oauth_token, "test-oauth-token")
       put_hive_env(:container_docker_available, true)
       put_hive_env(:container_image_available, true)
       :ok

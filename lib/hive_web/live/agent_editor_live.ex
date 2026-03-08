@@ -543,8 +543,7 @@ defmodule HiveWeb.AgentEditorLive do
            stderr_to_stdout: true,
            env: [
              {"HIVE_PROMPT", prompt},
-             {"CLAUDECODE", nil},
-             {"ANTHROPIC_API_KEY", nil}
+             {"CLAUDECODE", nil}
            ] ++ oauth_env()
          ) do
       {output, 0} -> {:ok, String.trim(output)}

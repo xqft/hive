@@ -398,12 +398,11 @@ defmodule Hive.Agent do
     node = System.find_executable("node") || "node"
     shell_cmd = Enum.join([node | base_args], " ") <> " 2>>#{stderr_log}"
 
-    # Pass CLAUDE_CODE_OAUTH_TOKEN if configured, unset ANTHROPIC_API_KEY
-    # Unset CLAUDECODE to allow nested claude CLI calls
+    # Pass CLAUDE_CODE_OAUTH_TOKEN, unset CLAUDECODE to allow nested claude CLI calls
     oauth_token = Application.get_env(:hive, :claude_oauth_token)
 
     env =
-      [{~c"ANTHROPIC_API_KEY", false}, {~c"CLAUDECODE", false}] ++
+      [{~c"CLAUDECODE", false}] ++
         if(oauth_token, do: [{~c"CLAUDE_CODE_OAUTH_TOKEN", String.to_charlist(oauth_token)}], else: [])
 
     Port.open(

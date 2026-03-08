@@ -27,7 +27,6 @@ config :hive,
   secret_key_base:
     System.get_env("HIVE_SECRET_KEY_BASE") ||
       "dev-secret-key-base-change-me-in-production-at-least-64-bytes-long-ok",
-  anthropic_api_key: System.get_env("ANTHROPIC_API_KEY"),
   claude_oauth_token: System.get_env("CLAUDE_CODE_OAUTH_TOKEN")
 
 if config_env() == :prod do

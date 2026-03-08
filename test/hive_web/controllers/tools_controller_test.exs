@@ -482,7 +482,7 @@ defmodule HiveWeb.ToolsControllerTest do
     setup do
       put_hive_env(:container_docker_available, true)
       put_hive_env(:container_image_available, true)
-      put_hive_env(:anthropic_api_key, "test-api-key")
+      put_hive_env(:claude_oauth_token, "test-oauth-token")
       :ok
     end
 
@@ -531,8 +531,7 @@ defmodule HiveWeb.ToolsControllerTest do
       assert body["error"] =~ "container image hive-claude-code:latest is not available locally"
     end
 
-    test "rejects when api key is missing", %{conn: conn} do
-      put_hive_env(:anthropic_api_key, nil)
+    test "rejects when oauth token is missing", %{conn: conn} do
       put_hive_env(:claude_oauth_token, nil)
 
       body =
@@ -540,7 +539,7 @@ defmodule HiveWeb.ToolsControllerTest do
         |> tool_call("test-agent", "execute_in_container", %{"task" => "run tests"})
         |> json_response(200)
 
-      assert body == %{"ok" => false, "error" => "Neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN is configured"}
+      assert body == %{"ok" => false, "error" => "CLAUDE_CODE_OAUTH_TOKEN is not configured"}
     end
   end
 

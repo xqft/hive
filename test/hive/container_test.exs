@@ -61,7 +61,7 @@ defmodule Hive.ContainerTest do
     Phoenix.PubSub.subscribe(Hive.PubSub, "containers")
     Registry.register(Hive.AgentRegistry, "container-test-agent", nil)
 
-    put_hive_env(:anthropic_api_key, "test-api-key")
+    put_hive_env(:claude_oauth_token, "test-oauth-token")
     put_hive_env(:container_docker_available, true)
     put_hive_env(:container_image_available, true)
 
@@ -361,26 +361,24 @@ defmodule Hive.ContainerTest do
       assert msg =~ "not available locally"
     end
 
-    test "rejects when API key is missing" do
+    test "rejects when oauth token is missing" do
       use_mock_docker()
-      put_hive_env(:anthropic_api_key, "")
-      put_hive_env(:claude_oauth_token, nil)
+      put_hive_env(:claude_oauth_token, "")
 
       assert {:error, msg} =
                Hive.Container.start("container-test-agent", %{"task" => "hello"})
 
-      assert msg =~ "Neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN is configured"
+      assert msg =~ "CLAUDE_CODE_OAUTH_TOKEN is not configured"
     end
 
-    test "rejects when API key is nil" do
+    test "rejects when oauth token is nil" do
       use_mock_docker()
-      put_hive_env(:anthropic_api_key, nil)
       put_hive_env(:claude_oauth_token, nil)
 
       assert {:error, msg} =
                Hive.Container.start("container-test-agent", %{"task" => "hello"})
 
-      assert msg =~ "Neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN is configured"
+      assert msg =~ "CLAUDE_CODE_OAUTH_TOKEN is not configured"
     end
   end
 
