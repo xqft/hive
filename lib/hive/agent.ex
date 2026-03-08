@@ -292,10 +292,8 @@ defmodule Hive.Agent do
 
         {:noreply, state}
 
-      {:ok, %{"type" => "session", "sessionId" => sid}} ->
-        {:noreply, %{state | session_id: sid}}
-
-      {:ok, %{"type" => "session", "session_id" => sid}} ->
+      {:ok, %{"type" => "session"} = msg} ->
+        sid = msg["sessionId"] || msg["session_id"]
         {:noreply, %{state | session_id: sid}}
 
       {:ok, %{"type" => "error", "message" => msg}} ->
