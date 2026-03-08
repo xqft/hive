@@ -108,6 +108,20 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {
       content: { type: "string", description: "Full CLAUDE.md content" }
     }, required: ["content"] }},
+  { name: "upload_media", description: "Upload a base64-encoded image. Returns a URL. Use ![alt](url) in send_message/send_dm.",
+    inputSchema: { type: "object", properties: {
+      data: { type: "string", description: "Base64-encoded image data" },
+      media_type: { type: "string", enum: ["image/png", "image/jpeg", "image/gif", "image/webp"], description: "MIME type of the image" }
+    }, required: ["data", "media_type"] }},
+  { name: "extract_container_file", description: "Extract a file from a container and upload it as media. Returns a URL.",
+    inputSchema: { type: "object", properties: {
+      container_id: { type: "string", description: "Container ID" },
+      path: { type: "string", description: "File path inside the container" }
+    }, required: ["container_id", "path"] }},
+  { name: "view_image", description: "View an image by URL. Returns the image so you can see its contents.",
+    inputSchema: { type: "object", properties: {
+      url: { type: "string", description: "Image URL (e.g. /uploads/abc.png)" }
+    }, required: ["url"] }},
 ];
 
 const server = new Server({ name: "hive", version: "1.0.0" }, {
@@ -128,6 +142,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       body: JSON.stringify({ agent: agentName, tool: name, params: params || {} })
     });
     const data = await res.json();
+
+    // view_image returns an image content block for the agent to see
+    if (name === "view_image" && data.ok && data.result && data.result.base64) {
+      return { content: [{ type: "image", data: data.result.base64, mimeType: data.result.media_type }] };
+    }
+
     const text = data.ok
       ? (typeof data.result === "string" ? data.result : JSON.stringify(data.result, null, 2))
       : `Error: ${data.error}`;

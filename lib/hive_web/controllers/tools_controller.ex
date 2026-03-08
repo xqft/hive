@@ -20,6 +20,7 @@ defmodule HiveWeb.ToolsController do
     container_new_window container_list_windows
     container_split_pane container_list_panes
     write_skill read_skill delete_skill write_claude_md
+    upload_media extract_container_file view_image
   )
 
   def call_tool(conn, %{"agent" => agent, "tool" => tool, "params" => params}) do
@@ -287,6 +288,38 @@ defmodule HiveWeb.ToolsController do
     File.write!(path, content)
     Hive.Persistence.update_agent_personality(agent, content)
     {:ok, "CLAUDE.md updated at #{path}"}
+  end
+
+  defp execute_tool(_agent, "upload_media", %{"data" => base64, "media_type" => media_type}) do
+    with {:ok, data} <- Base.decode64(base64),
+         {:ok, url} <- Hive.Media.save(data, media_type) do
+      {:ok, url}
+    else
+      :error -> {:error, "invalid base64 data"}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp execute_tool(_agent, "extract_container_file", %{"container_id" => id, "path" => path}) do
+    with {:ok, data, media_type} <- Hive.Container.extract_file(id, path),
+         {:ok, url} <- Hive.Media.save(data, media_type) do
+      {:ok, url}
+    end
+  end
+
+  defp execute_tool(_agent, "view_image", %{"url" => url}) do
+    if String.starts_with?(url, "/uploads/") do
+      path = Path.join([:code.priv_dir(:hive) |> to_string(), "static", url])
+
+      if File.exists?(path) do
+        data = File.read!(path)
+        {:ok, %{base64: Base.encode64(data), media_type: MIME.from_path(path)}}
+      else
+        {:error, "image not found"}
+      end
+    else
+      {:error, "only /uploads/ URLs are supported"}
+    end
   end
 
   defp execute_tool(_agent, tool, _params) do

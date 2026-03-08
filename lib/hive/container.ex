@@ -283,6 +283,37 @@ defmodule Hive.Container do
   end
 
   @doc """
+  Extract a file from a container via `docker cp` and return its binary data
+  along with the detected MIME type.
+
+  Returns `{:ok, data, media_type}` or `{:error, reason}`.
+  """
+  def extract_file(container_id, container_path) do
+    case Registry.lookup(Hive.ContainerRegistry, container_id) do
+      [{_pid, _}] ->
+        docker = docker_executable()
+        tmp = Path.join(System.tmp_dir!(), "hive_extract_#{:erlang.unique_integer([:positive])}")
+
+        case System.cmd(docker, ["cp", "#{container_id}:#{container_path}", tmp],
+               stderr_to_stdout: true
+             ) do
+          {_, 0} ->
+            data = File.read!(tmp)
+            media_type = MIME.from_path(container_path)
+            File.rm(tmp)
+            {:ok, data, media_type}
+
+          {output, _} ->
+            File.rm(tmp)
+            {:error, "Failed to extract: #{String.trim(output)}"}
+        end
+
+      [] ->
+        {:error, "Container #{container_id} not found"}
+    end
+  end
+
+  @doc """
   List all containers owned by `agent_name`.
   Returns a list of `{container_id, pid}`.
   """

@@ -9,6 +9,7 @@ defmodule Hive.Application do
     # Ensure directories exist
     File.mkdir_p!("priv/sqlite")
     File.mkdir_p!("priv/agents")
+    Hive.Media.ensure_upload_dir()
 
     children = [
       HiveWeb.Telemetry,

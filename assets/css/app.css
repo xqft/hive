@@ -893,6 +893,70 @@ select {
   color: var(--ui-text);
 }
 
+/* Inline images in messages */
+.ui-markdown img {
+  max-width: 100%;
+  max-height: 400px;
+  border-radius: 6px;
+  margin: 0.5rem 0;
+}
+
+/* Upload preview strip */
+.ui-upload-previews {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+}
+
+.ui-upload-preview {
+  position: relative;
+  display: inline-flex;
+}
+
+.ui-upload-preview__thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--ui-border);
+}
+
+.ui-upload-preview__remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--ui-danger);
+  color: white;
+  font-size: 12px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  border: 0;
+  cursor: pointer;
+}
+
+/* Upload button in composer */
+.ui-chat-composer__upload-btn {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  color: var(--ui-text-soft);
+}
+
+.ui-chat-composer__upload-btn:hover {
+  color: var(--ui-text-strong);
+}
+
+.ui-chat-composer__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .ui-chat-composer__footer,
 .ui-section-row,
 .ui-list-row {

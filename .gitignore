@@ -41,6 +41,7 @@ npm-debug.log
 /priv/sqlite/*.db-*
 /priv/agents/
 /priv/shared/vault/
+/priv/static/uploads/
 
 # Environment variables
 .env

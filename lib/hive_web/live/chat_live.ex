@@ -61,6 +61,11 @@ defmodule HiveWeb.ChatLive do
       |> assign(:new_topic_error, nil)
       |> assign(:form_reset, 0)
       |> assign(:typing_agents, [])
+      |> allow_upload(:media,
+        accept: ~w(.jpg .jpeg .png .gif .webp),
+        max_entries: 4,
+        max_file_size: 5_000_000
+      )
 
     {:ok, socket}
   end
@@ -284,10 +289,31 @@ defmodule HiveWeb.ChatLive do
                   </div>
                 </div>
 
+                <div :if={@uploads.media.entries != []} class="ui-upload-previews">
+                  <div :for={entry <- @uploads.media.entries} class="ui-upload-preview">
+                    <.live_img_preview entry={entry} class="ui-upload-preview__thumb" />
+                    <button
+                      type="button"
+                      phx-click="cancel_upload"
+                      phx-value-ref={entry.ref}
+                      class="ui-upload-preview__remove"
+                      aria-label="Remove"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                </div>
+
                 <div class="ui-chat-composer__footer">
-                  <p class="ui-helper-text">
-                    Markdown supported: code fences, links, emphasis, lists, and blockquotes.
-                  </p>
+                  <div class="ui-chat-composer__actions">
+                    <label class="ui-chat-composer__upload-btn" title="Attach image">
+                      <.live_file_input upload={@uploads.media} class="hidden" />
+                      <.icon name="hero-paper-clip" class="size-5" />
+                    </label>
+                    <p class="ui-helper-text">
+                      Markdown supported. Attach images with the paperclip.
+                    </p>
+                  </div>
                   <.button id="chat-send-button">Send</.button>
                 </div>
               </form>
@@ -365,6 +391,17 @@ defmodule HiveWeb.ChatLive do
   end
 
   def handle_event("send_message", %{"text" => text}, socket) when text != "" do
+    # Consume any uploaded images and get their URLs
+    urls =
+      consume_uploaded_entries(socket, :media, fn %{path: path}, entry ->
+        data = File.read!(path)
+        {:ok, url} = Hive.Media.save(data, entry.client_type)
+        {:ok, url}
+      end)
+
+    img_md = Enum.map_join(urls, "\n", &"![image](#{&1})")
+    full_text = if img_md == "", do: text, else: text <> "\n" <> img_md
+
     active_topic = socket.assigns.active_topic
 
     socket =
@@ -375,18 +412,60 @@ defmodule HiveWeb.ChatLive do
         "dm:" <> _ ->
           other = dm_other_party(active_topic, "human")
           {:ok, dm_name} = Hive.Topic.ensure_dm("human", other)
-          :ok = Hive.Topic.post(dm_name, "human", text)
+          :ok = Hive.Topic.post(dm_name, "human", full_text)
           switch_active_topic(socket, dm_name)
 
         _topic ->
-          :ok = Hive.Topic.post(active_topic, "human", text)
+          :ok = Hive.Topic.post(active_topic, "human", full_text)
           switch_active_topic(socket, active_topic)
       end
 
     {:noreply, assign(socket, :form_reset, socket.assigns.form_reset + 1)}
   end
 
-  def handle_event("send_message", _params, socket), do: {:noreply, socket}
+  def handle_event("send_message", _params, socket) do
+    # Handle case where text is empty but there are uploads
+    if socket.assigns.uploads.media.entries != [] do
+      urls =
+        consume_uploaded_entries(socket, :media, fn %{path: path}, entry ->
+          data = File.read!(path)
+          {:ok, url} = Hive.Media.save(data, entry.client_type)
+          {:ok, url}
+        end)
+
+      img_md = Enum.map_join(urls, "\n", &"![image](#{&1})")
+
+      if img_md != "" do
+        active_topic = socket.assigns.active_topic
+
+        socket =
+          case active_topic do
+            nil ->
+              socket
+
+            "dm:" <> _ ->
+              other = dm_other_party(active_topic, "human")
+              {:ok, dm_name} = Hive.Topic.ensure_dm("human", other)
+              :ok = Hive.Topic.post(dm_name, "human", img_md)
+              switch_active_topic(socket, dm_name)
+
+            _topic ->
+              :ok = Hive.Topic.post(active_topic, "human", img_md)
+              switch_active_topic(socket, active_topic)
+          end
+
+        {:noreply, assign(socket, :form_reset, socket.assigns.form_reset + 1)}
+      else
+        {:noreply, socket}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("cancel_upload", %{"ref" => ref}, socket) do
+    {:noreply, cancel_upload(socket, :media, ref)}
+  end
 
   def handle_event("toggle_create_topic", _params, socket) do
     {:noreply,
