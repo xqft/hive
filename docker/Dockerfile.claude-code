@@ -36,7 +36,9 @@ ENV PATH="/home/hive/.local/bin:${PATH}"
 # CLAUDE_CODE_OAUTH_TOKEN env var passed by Hive.Container.
 RUN mkdir -p /home/hive/.claude && \
     printf '%s\n' '{"skipDangerousModePermissionPrompt": true, "effortLevel": "max"}' \
-      > /home/hive/.claude/settings.json
+      > /home/hive/.claude/settings.json && \
+    printf '%s\n' '{"numStartups": 1, "hasCompletedOnboarding": true, "lastOnboardingVersion": "99.0.0", "installMethod": "native"}' \
+      > /home/hive/.claude.json
 
 WORKDIR /workspace
 
