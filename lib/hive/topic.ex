@@ -240,11 +240,11 @@ defmodule Hive.Topic do
     fun.()
   rescue
     e ->
-      Logger.debug("Persistence unavailable: #{inspect(e)}")
+      Logger.warning("Persistence unavailable: #{inspect(e)}")
       :error
   catch
     :exit, reason ->
-      Logger.debug("Persistence unavailable: #{inspect(reason)}")
+      Logger.warning("Persistence unavailable: #{inspect(reason)}")
       :error
   end
 
