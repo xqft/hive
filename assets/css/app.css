@@ -992,10 +992,9 @@ select {
 .ui-terminal {
   height: calc(100vh - 16rem);
   min-height: 300px;
-  border-radius: var(--ui-radius-lg);
+  border-radius: 4px;
   border: 1px solid var(--ui-border);
   background: #0a0a0f;
-  box-shadow: var(--ui-shadow-md);
   overflow: hidden;
   padding: 4px;
 }
