@@ -631,9 +631,12 @@ defmodule Hive.Container do
           "expiresAt" => System.system_time(:millisecond) + 365 * 86_400_000,
           "scopes" => [
             "user:inference",
+            "user:mcp_servers",
             "user:profile",
             "user:sessions:claude_code"
-          ]
+          ],
+          "subscriptionType" => "max",
+          "rateLimitTier" => "default_claude_max_20x"
         }
       }
 
