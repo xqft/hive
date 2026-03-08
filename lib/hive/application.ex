@@ -41,7 +41,7 @@ defmodule Hive.Application do
   end
 
   defp boot do
-    cleanup_orphaned_containers()
+    Hive.Container.cleanup_orphaned_containers()
     restore_topics()
     restore_agents()
     Logger.info("Hive boot complete")
@@ -76,20 +76,4 @@ defmodule Hive.Application do
     end
   end
 
-  defp cleanup_orphaned_containers do
-    case System.cmd("docker", ["ps", "--filter", "name=hive-", "--format", "{{.Names}}"],
-           stderr_to_stdout: true
-         ) do
-      {output, 0} ->
-        output
-        |> String.split("\n", trim: true)
-        |> Enum.each(fn name ->
-          Logger.info("Killing orphaned container: #{name}")
-          System.cmd("docker", ["kill", name])
-        end)
-
-      {_, _code} ->
-        Logger.warning("Docker not available — skipping orphan container cleanup")
-    end
-  end
 end
