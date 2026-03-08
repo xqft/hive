@@ -282,7 +282,7 @@ defmodule Hive.Agent do
 
     case Jason.decode(full_line) do
       {:ok, %{"type" => "status", "status" => status}} when status in ["idle", "thinking"] ->
-        new_status = String.to_existing_atom(status)
+        new_status = String.to_atom(status)
         Phoenix.PubSub.broadcast(Hive.PubSub, "agents", {:status, state.name, new_status})
 
         state =

@@ -20,4 +20,4 @@ RUN command -v claude && claude --version >/dev/null
 
 WORKDIR /workspace
 
-ENTRYPOINT ["claude", "--dangerously-bypass-permissions"]
+ENTRYPOINT ["claude", "--dangerously-skip-permissions"]
