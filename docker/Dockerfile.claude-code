@@ -7,16 +7,26 @@ ENV PATH="/root/.local/bin:${PATH}"
 
 # Install system dependencies (curl needed for Claude CLI install below)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl wget jq ripgrep \
+    git curl wget jq ripgrep sudo \
     python3 python3-pip \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code CLI
+# Install Claude Code CLI (as root, then copy for hive user)
 RUN curl -fsSL https://claude.ai/install.sh | bash -s -- "${CLAUDE_CODE_VERSION}"
 
 # Verify install
 RUN command -v claude && claude --version >/dev/null
+
+# Create non-root user (Claude CLI refuses --dangerously-skip-permissions as root)
+RUN useradd -m -s /bin/bash hive \
+    && cp -r /root/.local /home/hive/.local \
+    && chown -R hive:hive /home/hive/.local \
+    && mkdir -p /workspace && chown hive:hive /workspace \
+    && echo 'hive ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+
+USER hive
+ENV PATH="/home/hive/.local/bin:${PATH}"
 
 WORKDIR /workspace
 
