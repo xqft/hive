@@ -477,26 +477,16 @@ defmodule Hive.Agent do
 
   defp write_dynamic_context(agent_name, agent_dir) do
     agents_section =
-      case Hive.Persistence.get_agents() do
-        {:ok, agents} ->
-          agents
-          |> Enum.map(fn a -> "- #{a.name} -- #{a.description}" end)
-          |> Enum.join("\n")
-
-        _ ->
-          ""
-      end
+      build_context_section(
+        Hive.Persistence.get_agents(),
+        fn a -> "- #{a.name} -- #{a.description}" end
+      )
 
     topics_section =
-      case Hive.Persistence.get_subscriptions(agent_name) do
-        {:ok, topic_list} ->
-          topic_list
-          |> Enum.map(fn t -> "- #{t}" end)
-          |> Enum.join("\n")
-
-        _ ->
-          ""
-      end
+      build_context_section(
+        Hive.Persistence.get_subscriptions(agent_name),
+        fn t -> "- #{t}" end
+      )
 
     content = """
     ## Other Agents
@@ -509,6 +499,13 @@ defmodule Hive.Agent do
     path = Path.join(agent_dir, ".hive_context.md")
     File.write!(path, content)
     path
+  end
+
+  defp build_context_section(result, format_fn) do
+    case result do
+      {:ok, items} -> Enum.map_join(items, "\n", format_fn)
+      _ -> ""
+    end
   end
 
   # ---------------------------------------------------------------------------
