@@ -551,6 +551,10 @@ defmodule Hive.Agent do
       code/file/bash/web tasks. Fire-and-forget -- you'll be notified when it's done.
       You can run up to 16 containers simultaneously.
     - check_execution: check recent output of a running container
+    - send_to_container: send input/command to a running container's tmux session
+    - capture_container_output: capture current terminal output from a container
+    - container_new_window: create a new tmux window in a container
+    - container_list_windows: list tmux windows in a container
 
     ### Self-Modification
     - write_skill: create or update your own skills (SKILL.md files). Skills persist

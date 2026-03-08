@@ -70,6 +70,17 @@ defmodule Hive.Application do
     {:ok, agents} = Hive.Persistence.get_agents()
 
     for agent <- agents do
+      # Stop stale agent processes (e.g. surviving from hot reload) so they
+      # restart with fresh SDK subprocesses and pick up any code changes.
+      case Registry.lookup(Hive.AgentRegistry, agent.name) do
+        [{pid, _}] ->
+          Logger.info("Stopping stale agent #{agent.name} for restart")
+          GenServer.stop(pid, :normal, 5_000)
+
+        [] ->
+          :ok
+      end
+
       DynamicSupervisor.start_child(
         Hive.AgentSup,
         {Hive.Agent,
