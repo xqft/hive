@@ -144,10 +144,10 @@ defmodule Hive.Container do
                      "exec", container_id, "tmux", "capture-pane", "-p", "-S", "-", "-t", target
                    ], stderr_to_stdout: true) do
                 {output, 0} -> {:ok, output}
-                _ -> {:ok, "Input sent (output capture failed)"}
+                _ -> {:ok, "ok"}
               end
             else
-              {:ok, "Input sent"}
+              {:ok, "ok"}
             end
 
           {output, _} ->

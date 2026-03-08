@@ -54,7 +54,7 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {
       container_id: { type: "string" }
     }, required: ["container_id"] }},
-  { name: "send_to_container", description: "Send input to a container's tmux session and return terminal output. Use 'input' for shell commands (auto-appends Enter). Use 'keys' for raw key sequences (e.g. 'Enter', 'C-c', 'Up', 'Down'). Returns captured pane output after wait_ms delay (default 1000ms). No need to call capture_container_output separately.",
+  { name: "send_to_container", description: "Send input to a container's tmux session. Use 'input' for shell commands (auto-appends Enter). Use 'keys' for raw key sequences (e.g. 'Enter', 'C-c', 'Up', 'Down'). Returns captured pane output after wait_ms delay (default 1000ms) — no need to call capture_container_output separately. Set wait_ms=0 to fire-and-forget with no output returned (saves context).",
     inputSchema: { type: "object", properties: {
       container_id: { type: "string", description: "Container ID" },
       input: { type: "string", description: "Text to type followed by Enter (for shell commands)" },
