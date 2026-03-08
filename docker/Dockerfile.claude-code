@@ -20,7 +20,7 @@ RUN command -v claude && claude --version >/dev/null
 
 # Create non-root user (Claude CLI refuses --dangerously-skip-permissions as root)
 RUN useradd -m -s /bin/bash hive \
-    && cp -r /root/.local /home/hive/.local \
+    && cp -rL /root/.local /home/hive/.local \
     && chown -R hive:hive /home/hive/.local \
     && mkdir -p /workspace && chown hive:hive /workspace \
     && echo 'hive ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
