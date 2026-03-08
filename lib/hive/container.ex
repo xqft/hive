@@ -463,19 +463,14 @@ defmodule Hive.Container do
                  normalized_minutes <= @max_timeout_minutes do
           {:ok, round(normalized_minutes * 60_000)}
         else
-          false ->
-            {:error,
-             "timeout_minutes must be between #{@min_timeout_minutes} and #{@max_timeout_minutes}"}
-
-          {:error, _} ->
+          _ ->
             {:error,
              "timeout_minutes must be between #{@min_timeout_minutes} and #{@max_timeout_minutes}"}
         end
     end
   end
 
-  defp normalize_timeout_minutes(minutes) when is_integer(minutes), do: {:ok, minutes}
-  defp normalize_timeout_minutes(minutes) when is_float(minutes), do: {:ok, minutes}
+  defp normalize_timeout_minutes(minutes) when is_number(minutes), do: {:ok, minutes}
 
   defp normalize_timeout_minutes(minutes) when is_binary(minutes) do
     case Float.parse(minutes) do
