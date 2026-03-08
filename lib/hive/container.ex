@@ -520,12 +520,10 @@ defmodule Hive.Container do
 
   defp launch_detached_container(state) do
     docker = docker_executable()
-    env_args = auth_env_args()
 
     # Start container in detached mode with tmux entrypoint
     docker_args =
       ["run", "-d", "--name", state.id] ++
-        env_args ++
         ["--network", "bridge", image_name()]
 
     case System.cmd(docker, docker_args, stderr_to_stdout: true) do
@@ -829,11 +827,6 @@ defmodule Hive.Container do
     else
       :ok
     end
-  end
-
-  defp auth_env_args do
-    token = oauth_token()
-    if token != "", do: ["--env", "CLAUDE_CODE_OAUTH_TOKEN=#{token}"], else: []
   end
 
   defp image_name do
