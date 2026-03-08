@@ -25,14 +25,12 @@ defmodule HiveWeb.ChatLiveTest do
           existing_pid
 
         [] ->
-          {:ok, started_pid} =
-            DynamicSupervisor.start_child(
-              Hive.TopicSup,
-              {Hive.Topic,
-               name: name, description: "Test: #{name}", type: :topic, created_by: "test"}
-            )
-
-          started_pid
+          start_supervised!(%{
+            id: {Hive.Topic, name},
+            start:
+              {Hive.Topic, :start_link,
+               [[name: name, description: "Test: #{name}", type: :topic, created_by: "test"]]}
+          })
       end
 
     pid
@@ -40,8 +38,15 @@ defmodule HiveWeb.ChatLiveTest do
 
   defp cleanup_topic(name) do
     case Registry.lookup(Hive.TopicRegistry, name) do
-      [{pid, _}] -> GenServer.stop(pid, :normal)
-      [] -> :ok
+      [{pid, _}] ->
+        try do
+          GenServer.stop(pid, :normal)
+        catch
+          :exit, _ -> :ok
+        end
+
+      [] ->
+        :ok
     end
 
     Hive.Persistence.delete_topic(name)
@@ -113,6 +118,51 @@ defmodule HiveWeb.ChatLiveTest do
       assert html =~ "hello from alice in liveview test"
       assert html =~ "alice"
     end
+
+    test "off-screen messages increment unread and appear when reopening the topic", %{conn: conn} do
+      active_topic = "lv-active-#{:erlang.unique_integer([:positive])}"
+      inactive_topic = "lv-inactive-#{:erlang.unique_integer([:positive])}"
+
+      create_topic(active_topic)
+      create_topic(inactive_topic)
+
+      on_exit(fn ->
+        cleanup_topic(active_topic)
+        cleanup_topic(inactive_topic)
+      end)
+
+      {:ok, view, _html} = live(conn, "/")
+
+      view |> element("#topic-#{active_topic}") |> render_click()
+      Hive.Topic.post(inactive_topic, "alice", "buffered off-screen message")
+
+      assert has_element?(view, "#topic-unread-#{inactive_topic}", "1")
+
+      html = view |> element("#topic-#{inactive_topic}") |> render_click()
+      assert html =~ "buffered off-screen message"
+      refute has_element?(view, "#topic-unread-#{inactive_topic}")
+    end
+
+    test "buffered messages do not duplicate when the topic is reopened", %{conn: conn} do
+      active_topic = "lv-active-dedup-#{:erlang.unique_integer([:positive])}"
+      buffered_topic = "lv-buffered-dedup-#{:erlang.unique_integer([:positive])}"
+
+      create_topic(active_topic)
+      create_topic(buffered_topic)
+
+      on_exit(fn ->
+        cleanup_topic(active_topic)
+        cleanup_topic(buffered_topic)
+      end)
+
+      {:ok, view, _html} = live(conn, "/")
+
+      view |> element("#topic-#{active_topic}") |> render_click()
+      Hive.Topic.post(buffered_topic, "alice", "dedup message")
+
+      html = view |> element("#topic-#{buffered_topic}") |> render_click()
+      assert length(String.split(html, ~s(data-mention-body="dedup message"))) == 2
+    end
   end
 
   describe "sending messages" do
@@ -135,6 +185,35 @@ defmodule HiveWeb.ChatLiveTest do
       # render/1 flushes any pending messages, so the view should reflect it.
       html = render(view)
       assert html =~ "hello from liveview"
+    end
+
+    test "submitting the form in a DM renders the message and subsequent agent reply", %{
+      conn: conn
+    } do
+      agent = "dm-agent-#{:erlang.unique_integer([:positive])}"
+      dm_name = Hive.Topic.dm_channel_name("human", agent)
+
+      create_agent(agent)
+
+      on_exit(fn ->
+        cleanup_agent(agent)
+        cleanup_topic(dm_name)
+      end)
+
+      {:ok, view, _html} = live(conn, "/")
+
+      view |> element("button[phx-click=toggle_new_dm]") |> render_click()
+      view |> element("#start-dm-#{agent}") |> render_click()
+
+      view
+      |> form("#msg-form-0", %{text: "hello in dm"})
+      |> render_submit()
+
+      assert render(view) =~ "hello in dm"
+
+      :ok = Hive.Topic.post(dm_name, agent, "reply in dm")
+
+      assert render(view) =~ "reply in dm"
     end
 
     test "submitting empty text does not crash", %{conn: conn} do

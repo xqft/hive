@@ -62,7 +62,7 @@ defmodule HiveWeb.McpServersLive do
               </div>
             </div>
           </div>
-
+          
     <!-- Right: Editor form -->
           <div>
             <div class="ui-card">

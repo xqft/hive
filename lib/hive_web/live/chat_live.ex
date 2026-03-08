@@ -34,9 +34,9 @@ defmodule HiveWeb.ChatLive do
     # Load messages and members for active topic
     {messages, members} = load_topic_data(active_topic)
 
-    # Subscribe to the active topic's PubSub channel
-    if connected?(socket) && active_topic do
-      Phoenix.PubSub.subscribe(Hive.PubSub, "topic:#{active_topic}")
+    if connected?(socket) do
+      subscribe_to_topics(all_topics)
+      schedule_active_topic_refresh()
     end
 
     # Load containers from registry
@@ -48,6 +48,8 @@ defmodule HiveWeb.ChatLive do
       |> assign(:dms, dms)
       |> assign(:active_topic, active_topic)
       |> assign(:messages, messages)
+      |> assign(:topic_messages, initial_topic_messages(active_topic, messages))
+      |> assign(:unread_counts, %{})
       |> assign(:members, members)
       |> assign(:agents, all_agents)
       |> assign(:agent_statuses, agent_statuses)
@@ -127,6 +129,13 @@ defmodule HiveWeb.ChatLive do
                         <span class="font-medium text-[var(--ui-text-strong)]"># {topic.name}</span>
                         <span class="ui-topic-link__meta">Topic</span>
                       </span>
+                      <span
+                        :if={unread_count(@unread_counts, topic.name) > 0}
+                        id={"topic-unread-#{topic.name}"}
+                        class="ui-pill"
+                      >
+                        {unread_count(@unread_counts, topic.name)}
+                      </span>
                     </button>
                   </div>
                 </section>
@@ -169,6 +178,13 @@ defmodule HiveWeb.ChatLive do
                           {dm_display_name(dm.name)}
                         </span>
                         <span class="ui-topic-link__meta">Direct message</span>
+                      </span>
+                      <span
+                        :if={unread_count(@unread_counts, dm.name) > 0}
+                        id={"dm-unread-#{dm.name}"}
+                        class="ui-pill"
+                      >
+                        {unread_count(@unread_counts, dm.name)}
                       </span>
                     </button>
                   </div>
@@ -345,41 +361,27 @@ defmodule HiveWeb.ChatLive do
 
   @impl true
   def handle_event("select_topic", %{"name" => name}, socket) do
-    old_topic = socket.assigns.active_topic
-
-    # Unsubscribe from old topic PubSub
-    if old_topic do
-      Phoenix.PubSub.unsubscribe(Hive.PubSub, "topic:#{old_topic}")
-    end
-
-    # Subscribe to new topic PubSub
-    Phoenix.PubSub.subscribe(Hive.PubSub, "topic:#{name}")
-
-    # Load messages and members for new topic
-    {messages, members} = load_topic_data(name)
-
-    socket =
-      socket
-      |> assign(:active_topic, name)
-      |> assign(:messages, messages)
-      |> assign(:members, members)
-      |> assign(:typing_agents, [])
-
-    {:noreply, socket}
+    {:noreply, switch_active_topic(socket, name)}
   end
 
   def handle_event("send_message", %{"text" => text}, socket) when text != "" do
     active_topic = socket.assigns.active_topic
 
-    if active_topic do
-      if String.starts_with?(active_topic, "dm:") do
-        other = dm_other_party(active_topic, "human")
-        {:ok, dm_name} = Hive.Topic.ensure_dm("human", other)
-        Hive.Topic.post(dm_name, "human", text)
-      else
-        Hive.Topic.post(active_topic, "human", text)
+    socket =
+      case active_topic do
+        nil ->
+          socket
+
+        "dm:" <> _ ->
+          other = dm_other_party(active_topic, "human")
+          {:ok, dm_name} = Hive.Topic.ensure_dm("human", other)
+          :ok = Hive.Topic.post(dm_name, "human", text)
+          switch_active_topic(socket, dm_name)
+
+        _topic ->
+          :ok = Hive.Topic.post(active_topic, "human", text)
+          switch_active_topic(socket, active_topic)
       end
-    end
 
     {:noreply, assign(socket, :form_reset, socket.assigns.form_reset + 1)}
   end
@@ -455,9 +457,9 @@ defmodule HiveWeb.ChatLive do
     all_topics = load_topics()
     dms = Enum.filter(all_topics, fn t -> t.type == "dm" end)
 
-    old_topic = socket.assigns.active_topic
-    if old_topic, do: Phoenix.PubSub.unsubscribe(Hive.PubSub, "topic:#{old_topic}")
-    Phoenix.PubSub.subscribe(Hive.PubSub, "topic:#{dm_name}")
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(Hive.PubSub, "topic:#{dm_name}")
+    end
 
     {messages, members} = load_topic_data(dm_name)
 
@@ -466,6 +468,8 @@ defmodule HiveWeb.ChatLive do
       |> assign(:dms, dms)
       |> assign(:active_topic, dm_name)
       |> assign(:messages, messages)
+      |> assign(:topic_messages, Map.put(socket.assigns.topic_messages, dm_name, messages))
+      |> assign(:unread_counts, Map.delete(socket.assigns.unread_counts, dm_name))
       |> assign(:members, members)
       |> assign(:typing_agents, [])
       |> assign(:show_new_dm, false)
@@ -484,23 +488,23 @@ defmodule HiveWeb.ChatLive do
 
   @impl true
   def handle_info({:message, msg}, socket) do
-    # Only append if the message is for the active topic
-    if msg.topic == socket.assigns.active_topic do
-      new_msg = %{sender: msg.sender, sender_kind: msg.sender_kind, body: msg.body, ts: msg.ts}
-      messages = socket.assigns.messages ++ [new_msg]
+    new_msg = %{sender: msg.sender, sender_kind: msg.sender_kind, body: msg.body, ts: msg.ts}
+    topic_messages = append_topic_message(socket.assigns.topic_messages, msg.topic, new_msg)
 
-      socket =
-        socket
-        |> assign(:messages, messages)
-        |> update(:typing_agents, &Enum.reject(&1, fn name -> name == msg.sender end))
+    socket =
+      socket
+      |> assign(:topic_messages, topic_messages)
+      |> maybe_assign_active_messages(msg.topic, topic_messages)
+      |> maybe_increment_unread(msg.topic)
+      |> update(:typing_agents, &Enum.reject(&1, fn name -> name == msg.sender end))
 
-      {:noreply, socket}
-    else
-      {:noreply, socket}
-    end
+    {:noreply, socket}
   end
 
   def handle_info({:member_joined, %{topic: topic, agent: agent, ts: ts}}, socket) do
+    join_msg = %{sender: "system", sender_kind: "system", body: "#{agent} joined", ts: ts}
+    topic_messages = append_topic_message(socket.assigns.topic_messages, topic, join_msg)
+
     if topic == socket.assigns.active_topic do
       members =
         socket.assigns.members
@@ -508,16 +512,18 @@ defmodule HiveWeb.ChatLive do
         |> Enum.uniq()
         |> Enum.sort()
 
-      join_msg = %{sender: "system", sender_kind: "system", body: "#{agent} joined", ts: ts}
-
       socket =
         socket
         |> assign(:members, members)
-        |> assign(:messages, socket.assigns.messages ++ [join_msg])
+        |> assign(:topic_messages, topic_messages)
+        |> assign(:messages, Map.fetch!(topic_messages, topic))
 
       {:noreply, socket}
     else
-      {:noreply, socket}
+      {:noreply,
+       socket
+       |> assign(:topic_messages, topic_messages)
+       |> maybe_increment_unread(topic)}
     end
   end
 
@@ -542,12 +548,24 @@ defmodule HiveWeb.ChatLive do
     {:noreply, socket}
   end
 
+  def handle_info(:refresh_active_topic, socket) do
+    if connected?(socket) do
+      schedule_active_topic_refresh()
+    end
+
+    {:noreply, refresh_active_topic(socket)}
+  end
+
   # Registry changes: new topic created
   def handle_info({:topic_created, name, _created_by}, socket) do
     # Reload topics from persistence
     all_topics = load_topics()
     topics = Enum.filter(all_topics, fn t -> t.type != "dm" end)
     dms = Enum.filter(all_topics, fn t -> t.type == "dm" end)
+
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(Hive.PubSub, "topic:#{name}")
+    end
 
     socket =
       socket
@@ -613,14 +631,7 @@ defmodule HiveWeb.ChatLive do
   defp load_topic_data(nil), do: {[], []}
 
   defp load_topic_data(topic_name) do
-    messages =
-      try do
-        topic_name
-        |> Hive.Topic.recent(50)
-        |> Enum.reverse()
-      catch
-        :exit, _ -> []
-      end
+    messages = load_messages(topic_name)
 
     members =
       try do
@@ -633,6 +644,25 @@ defmodule HiveWeb.ChatLive do
       end
 
     {messages, members}
+  end
+
+  defp load_messages(topic_name) do
+    topic_messages =
+      try do
+        topic_name
+        |> Hive.Topic.recent(50)
+        |> Enum.reverse()
+      catch
+        :exit, _ -> []
+      end
+
+    persisted_messages =
+      case Hive.Persistence.get_messages(topic_name, 50) do
+        {:ok, messages} -> Enum.map(messages, &with_sender_kind/1)
+        _ -> []
+      end
+
+    merge_messages(persisted_messages, topic_messages)
   end
 
   defp build_agent_statuses(agents) do
@@ -761,4 +791,140 @@ defmodule HiveWeb.ChatLive do
     |> Enum.reject(fn current -> current.id == container.id end)
     |> Kernel.++([container])
   end
+
+  defp subscribe_to_topics(topics) do
+    Enum.each(topics, fn topic ->
+      Phoenix.PubSub.subscribe(Hive.PubSub, "topic:#{topic.name}")
+    end)
+  end
+
+  defp subscribe_to_topic(socket, topic_name) do
+    if connected?(socket) and topic_name do
+      Phoenix.PubSub.subscribe(Hive.PubSub, "topic:#{topic_name}")
+    end
+
+    socket
+  end
+
+  defp switch_active_topic(socket, topic_name) do
+    socket = subscribe_to_topic(socket, topic_name)
+
+    {loaded_messages, members} = load_topic_data(topic_name)
+
+    messages =
+      visible_messages_for_topic(socket.assigns.topic_messages, topic_name, loaded_messages)
+
+    socket
+    |> assign(:active_topic, topic_name)
+    |> assign(:messages, messages)
+    |> assign(:topic_messages, Map.put(socket.assigns.topic_messages, topic_name, messages))
+    |> assign(:unread_counts, Map.delete(socket.assigns.unread_counts, topic_name))
+    |> assign(:members, members)
+    |> assign(:typing_agents, [])
+  end
+
+  defp refresh_active_topic(%{assigns: %{active_topic: nil}} = socket), do: socket
+
+  defp refresh_active_topic(socket) do
+    active_topic = socket.assigns.active_topic
+    {loaded_messages, members} = load_topic_data(active_topic)
+
+    messages =
+      visible_messages_for_topic(socket.assigns.topic_messages, active_topic, loaded_messages)
+
+    socket
+    |> assign(:messages, messages)
+    |> assign(:topic_messages, Map.put(socket.assigns.topic_messages, active_topic, messages))
+    |> assign(:members, members)
+  end
+
+  defp schedule_active_topic_refresh do
+    Process.send_after(self(), :refresh_active_topic, 500)
+  end
+
+  defp initial_topic_messages(nil, _messages), do: %{}
+  defp initial_topic_messages(topic, messages), do: %{topic => messages}
+
+  defp visible_messages_for_topic(topic_messages, topic, loaded_messages) do
+    topic_messages
+    |> Map.get(topic, [])
+    |> merge_messages(loaded_messages)
+  end
+
+  defp append_topic_message(topic_messages, topic, message) do
+    existing = Map.get(topic_messages, topic, [])
+    Map.put(topic_messages, topic, merge_messages(existing, [message]))
+  end
+
+  defp merge_messages(left, right) do
+    (left ++ right)
+    |> Enum.uniq_by(&message_identity/1)
+    |> Enum.sort_by(&message_sort_key/1)
+  end
+
+  defp message_identity(message) do
+    {
+      Map.get(message, :sender),
+      Map.get(message, :sender_kind),
+      Map.get(message, :body),
+      normalize_timestamp(Map.get(message, :ts))
+    }
+  end
+
+  defp message_sort_key(message) do
+    case normalize_timestamp(Map.get(message, :ts)) do
+      %DateTime{} = dt -> {0, DateTime.to_unix(dt, :microsecond)}
+      timestamp when is_binary(timestamp) -> {1, timestamp}
+      timestamp -> {2, inspect(timestamp)}
+    end
+  end
+
+  defp normalize_timestamp(%DateTime{} = timestamp), do: DateTime.truncate(timestamp, :second)
+
+  defp normalize_timestamp(timestamp) when is_binary(timestamp) do
+    case DateTime.from_iso8601(timestamp) do
+      {:ok, dt, _offset} -> DateTime.truncate(dt, :second)
+      _ -> normalize_naive_timestamp(timestamp)
+    end
+  end
+
+  defp normalize_timestamp(timestamp), do: timestamp
+
+  defp normalize_naive_timestamp(timestamp) do
+    timestamp
+    |> String.replace(" ", "T")
+    |> NaiveDateTime.from_iso8601()
+    |> case do
+      {:ok, naive_dt} -> DateTime.from_naive!(naive_dt, "Etc/UTC")
+      _ -> timestamp
+    end
+  end
+
+  defp with_sender_kind(message) do
+    Map.put_new(message, :sender_kind, inferred_sender_kind(Map.get(message, :sender)))
+  end
+
+  defp inferred_sender_kind("human"), do: "human"
+  defp inferred_sender_kind("system"), do: "system"
+  defp inferred_sender_kind(_sender), do: "agent"
+
+  defp maybe_assign_active_messages(socket, topic, topic_messages) do
+    if topic == socket.assigns.active_topic do
+      assign(socket, :messages, Map.fetch!(topic_messages, topic))
+    else
+      socket
+    end
+  end
+
+  defp maybe_increment_unread(socket, topic) do
+    if topic == socket.assigns.active_topic do
+      socket
+    else
+      update(socket, :unread_counts, fn unread_counts ->
+        Map.update(unread_counts, topic, 1, &(&1 + 1))
+      end)
+    end
+  end
+
+  defp unread_count(unread_counts, topic), do: Map.get(unread_counts, topic, 0)
 end

@@ -192,6 +192,7 @@ defmodule Hive.PersistenceTest do
 
       {:ok, msgs} = Persistence.get_messages("limited", 3, s)
       assert length(msgs) == 3
+      assert Enum.map(msgs, & &1.body) == ["msg 3", "msg 4", "msg 5"]
     end
   end
 

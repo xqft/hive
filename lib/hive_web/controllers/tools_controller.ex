@@ -27,7 +27,7 @@ defmodule HiveWeb.ToolsController do
           json(conn, %{ok: true, result: result})
 
         {:error, reason} ->
-          json(conn, %{ok: false, error: to_string(reason)})
+          json(conn, %{ok: false, error: format_error(reason)})
       end
     else
       {:error, :unauthorized} ->
@@ -66,18 +66,21 @@ defmodule HiveWeb.ToolsController do
   # Tool implementations
   # ---------------------------------------------------------------------------
 
-  defp execute_tool(agent, "send_message", %{"topic" => topic, "text" => text}) do
-    case Hive.Topic.post(topic, agent, text) do
-      :ok -> {:ok, "Message sent to #{topic}"}
+  defp execute_tool(agent, "send_message", %{"text" => text} = params) do
+    with {:ok, topic} <- resolve_topic_reply_target(agent, params),
+         :ok <- Hive.Topic.post(topic, agent, text) do
+      {:ok, "Message sent to #{topic}"}
+    else
       error -> error
     end
   end
 
-  defp execute_tool(agent, "send_dm", %{"to" => to, "text" => text}) do
-    {:ok, dm_name} = Hive.Topic.ensure_dm(agent, to)
-
-    case Hive.Topic.post(dm_name, agent, text) do
-      :ok -> {:ok, "DM sent to #{to}"}
+  defp execute_tool(agent, "send_dm", %{"text" => text} = params) do
+    with {:ok, recipient} <- resolve_dm_recipient(agent, params),
+         {:ok, dm_name} <- Hive.Topic.ensure_dm(agent, recipient),
+         :ok <- Hive.Topic.post(dm_name, agent, text) do
+      {:ok, "DM sent to #{recipient}"}
+    else
       error -> error
     end
   end
@@ -204,13 +207,11 @@ defmodule HiveWeb.ToolsController do
   end
 
   defp execute_tool(agent, "execute_in_container", params) do
-    timeout_ms = (params["timeout_minutes"] || 10) * 60_000
-
-    case Hive.Container.start(agent, params, timeout_ms) do
+    case Hive.Container.start(agent, params) do
       {:ok, container_id} ->
         {:ok, "Container #{container_id} launched. You'll be notified when it completes."}
 
-      {:error, :limit_reached, msg} ->
+      {:error, msg} ->
         {:error, msg}
     end
   end
@@ -266,4 +267,109 @@ defmodule HiveWeb.ToolsController do
   defp format_history_timestamp(%DateTime{} = timestamp), do: DateTime.to_iso8601(timestamp)
   defp format_history_timestamp(timestamp) when is_binary(timestamp), do: timestamp
   defp format_history_timestamp(_timestamp), do: "unknown"
+
+  defp format_error(reason) when is_binary(reason), do: reason
+  defp format_error(reason), do: inspect(reason)
+
+  defp resolve_topic_reply_target(agent, params) do
+    requested_topic = blank_to_nil(params["topic"])
+
+    case agent_active_channel(agent) do
+      {"topic", active_topic} ->
+        cond do
+          is_nil(requested_topic) ->
+            {:ok, active_topic}
+
+          requested_topic == active_topic ->
+            {:ok, active_topic}
+
+          true ->
+            {:error,
+             "Current reply context is topic #{active_topic}; send_message can only post there"}
+        end
+
+      {"dm", dm_name} ->
+        {:error, "Current reply context is DM #{dm_name}; use send_dm for same-channel replies"}
+
+      nil ->
+        if requested_topic do
+          {:ok, requested_topic}
+        else
+          {:error, "topic is required when there is no active topic context"}
+        end
+    end
+  end
+
+  defp resolve_dm_recipient(agent, params) do
+    requested_recipient = blank_to_nil(params["to"])
+
+    case agent_active_channel(agent) do
+      {"dm", dm_name} ->
+        expected_recipient = dm_other_party(dm_name, agent)
+        recipient = requested_recipient || expected_recipient
+
+        if recipient == expected_recipient do
+          {:ok, recipient}
+        else
+          {:error,
+           "Current reply context is DM #{dm_name}; send_dm can only target #{expected_recipient}"}
+        end
+
+      {"topic", active_topic} ->
+        if explicit_out_of_band_reason?(params) do
+          require_dm_recipient(requested_recipient)
+        else
+          {:error,
+           "Current reply context is topic #{active_topic}; reply there with send_message unless you intentionally need a DM and include a reason"}
+        end
+
+      nil ->
+        require_dm_recipient(requested_recipient)
+    end
+  end
+
+  defp require_dm_recipient(nil),
+    do: {:error, "to is required when there is no active DM context"}
+
+  defp require_dm_recipient(recipient), do: {:ok, recipient}
+
+  defp explicit_out_of_band_reason?(params) do
+    params["reason"]
+    |> blank_to_nil()
+    |> is_binary()
+  end
+
+  defp agent_active_channel(agent) do
+    overrides = Application.get_env(:hive, :agent_active_channel_overrides, %{})
+
+    case Map.get(overrides, agent) do
+      nil ->
+        try do
+          Hive.Agent.active_channel(agent)
+        catch
+          :exit, _ -> nil
+        end
+
+      override ->
+        override
+    end
+  end
+
+  defp dm_other_party("dm:" <> rest, self_name) do
+    case String.split(rest, ":", parts: 2) do
+      [a, b] -> if a == self_name, do: b, else: a
+      _ -> self_name
+    end
+  end
+
+  defp dm_other_party(_, self_name), do: self_name
+
+  defp blank_to_nil(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp blank_to_nil(value), do: value
 end

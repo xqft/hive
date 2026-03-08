@@ -11,16 +11,17 @@ const secret = process.argv[3];
 const hiveUrl = process.argv[4] || "http://localhost:4000";
 
 const TOOLS = [
-  { name: "send_message", description: "Post a message to a topic you're subscribed to",
+  { name: "send_message", description: "Post a message to the active topic. topic is optional when replying in the current topic context.",
     inputSchema: { type: "object", properties: {
       topic: { type: "string", description: "Topic name to post to" },
       text: { type: "string", description: "Message text" }
-    }, required: ["topic", "text"] }},
-  { name: "send_dm", description: "Send a direct message to another agent or 'human'",
+    }, required: ["text"] }},
+  { name: "send_dm", description: "Send a direct message to another agent or 'human'. If the current turn came from a topic, include reason to make the out-of-band DM explicit.",
     inputSchema: { type: "object", properties: {
       to: { type: "string", description: "Agent name or 'human'" },
-      text: { type: "string", description: "Message text" }
-    }, required: ["to", "text"] }},
+      text: { type: "string", description: "Message text" },
+      reason: { type: "string", description: "Required when sending a DM from a topic-triggered turn" }
+    }, required: ["text"] }},
   { name: "create_topic", description: "Create a new topic, optionally invite agents",
     inputSchema: { type: "object", properties: {
       name: { type: "string", description: "Topic name" },

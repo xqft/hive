@@ -86,12 +86,15 @@ defmodule Hive.Persistence do
   def get_messages(topic, limit \\ 50, server \\ __MODULE__) do
     reader = get_reader(server)
 
-    query_all(
-      reader,
-      "SELECT sender, body, ts FROM messages WHERE topic = ?1 ORDER BY ts ASC LIMIT ?2",
-      [topic, limit],
-      [:sender, :body, :ts]
-    )
+    case query_all(
+           reader,
+           "SELECT sender, body, ts FROM (SELECT sender, body, ts, id FROM messages WHERE topic = ?1 ORDER BY id DESC LIMIT ?2) recent ORDER BY id ASC",
+           [topic, limit],
+           [:sender, :body, :ts]
+         ) do
+      {:ok, messages} -> {:ok, messages}
+      error -> error
+    end
   end
 
   def get_agents(server \\ __MODULE__) do

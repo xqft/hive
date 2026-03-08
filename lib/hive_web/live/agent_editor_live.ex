@@ -55,7 +55,7 @@ defmodule HiveWeb.AgentEditorLive do
               <div class="text-xs text-base-content/50 line-clamp-2">{agent.description}</div>
             </div>
           </div>
-
+          
     <!-- Right: Editor form -->
           <div class="col-span-1 lg:col-span-2">
             <div class="ui-card">
@@ -118,7 +118,7 @@ defmodule HiveWeb.AgentEditorLive do
                     placeholder="Instructions, personality, objectives..."
                   >{@form_personality}</textarea>
                 </div>
-
+                
     <!-- MCP Server assignment -->
                 <div class="form-control mb-4">
                   <label class="mb-2 block text-sm font-medium text-[var(--ui-text-strong)]">

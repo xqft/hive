@@ -41,6 +41,19 @@ defmodule HiveWeb.ToolsControllerTest do
     Path.join([agent_dir(agent), ".claude", "skills", skill])
   end
 
+  defp put_hive_env(key, value) do
+    previous = Application.get_env(:hive, key)
+    Application.put_env(:hive, key, value)
+
+    on_exit(fn ->
+      if is_nil(previous) do
+        Application.delete_env(:hive, key)
+      else
+        Application.put_env(:hive, key, previous)
+      end
+    end)
+  end
+
   setup %{conn: conn} do
     conn = put_req_header(conn, "content-type", "application/json")
 
@@ -453,6 +466,71 @@ defmodule HiveWeb.ToolsControllerTest do
       body = json_response(read_conn, 200)
       assert body["ok"] == false
       assert body["error"] =~ "not found"
+    end
+  end
+
+  describe "execute_in_container" do
+    setup do
+      put_hive_env(:container_docker_available, true)
+      put_hive_env(:container_image_available, true)
+      put_hive_env(:anthropic_api_key, "test-api-key")
+      :ok
+    end
+
+    test "rejects missing task text", %{conn: conn} do
+      body =
+        conn
+        |> tool_call("test-agent", "execute_in_container", %{"task" => "   "})
+        |> json_response(200)
+
+      assert body == %{"ok" => false, "error" => "task is required"}
+    end
+
+    test "rejects timeout outside allowed bounds", %{conn: conn} do
+      body =
+        conn
+        |> tool_call("test-agent", "execute_in_container", %{
+          "task" => "run tests",
+          "timeout_minutes" => 0
+        })
+        |> json_response(200)
+
+      assert body["ok"] == false
+      assert body["error"] =~ "timeout_minutes must be between 1 and 60"
+    end
+
+    test "rejects when docker is unavailable", %{conn: conn} do
+      put_hive_env(:container_docker_available, false)
+
+      body =
+        conn
+        |> tool_call("test-agent", "execute_in_container", %{"task" => "run tests"})
+        |> json_response(200)
+
+      assert body == %{"ok" => false, "error" => "docker is not installed or not on PATH"}
+    end
+
+    test "rejects when image is unavailable", %{conn: conn} do
+      put_hive_env(:container_image_available, false)
+
+      body =
+        conn
+        |> tool_call("test-agent", "execute_in_container", %{"task" => "run tests"})
+        |> json_response(200)
+
+      assert body["ok"] == false
+      assert body["error"] =~ "container image hive-claude-code:latest is not available locally"
+    end
+
+    test "rejects when api key is missing", %{conn: conn} do
+      put_hive_env(:anthropic_api_key, nil)
+
+      body =
+        conn
+        |> tool_call("test-agent", "execute_in_container", %{"task" => "run tests"})
+        |> json_response(200)
+
+      assert body == %{"ok" => false, "error" => "ANTHROPIC_API_KEY is not configured"}
     end
   end
 

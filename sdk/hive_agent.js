@@ -15,10 +15,20 @@ let sessionId = resumeSessionId;
 const rl = readline.createInterface({ input: process.stdin });
 let pending = [];
 let processing = false;
+let flushScheduled = false;
 
 rl.on("line", (line) => {
   pending.push(line);
-  if (!processing) processNext();
+  // Defer processing to next tick so all lines from one stdin chunk
+  // are collected before we start a turn. Without this, multi-line
+  // messages get split across separate SDK turns (causing duplicates).
+  if (!processing && !flushScheduled) {
+    flushScheduled = true;
+    setImmediate(() => {
+      flushScheduled = false;
+      if (!processing && pending.length > 0) processNext();
+    });
+  }
 });
 
 async function processNext() {

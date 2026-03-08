@@ -26,7 +26,8 @@ defmodule Hive.Agent do
     :sdk_port,
     :session_id,
     :mcp_secret,
-    :active_channel
+    :active_channel,
+    line_buffer: ""
   ]
 
   # ---------------------------------------------------------------------------
@@ -55,18 +56,6 @@ defmodule Hive.Agent do
     GenServer.start_link(__MODULE__, opts, name: via(name))
   end
 
-  @doc "Send a topic message to be piped to the agent's Claude Code subprocess."
-  def deliver_message(agent_name, topic_name, sender, text) do
-    message = %{
-      sender: sender,
-      sender_kind: infer_sender_kind(sender),
-      body: text,
-      ts: DateTime.utc_now()
-    }
-
-    GenServer.cast(via(agent_name), {:deliver_message, topic_name, message})
-  end
-
   @doc "Inject a system message (container completion, @mention invite, etc.)."
   def inject_message(agent_name, message) do
     GenServer.cast(via(agent_name), {:inject_message, message})
@@ -80,6 +69,11 @@ defmodule Hive.Agent do
   @doc "Get agent status (:idle or :thinking)."
   def status(agent_name) do
     GenServer.call(via(agent_name), :status)
+  end
+
+  @doc "Get the most recent active reply channel as {type, name} or nil."
+  def active_channel(agent_name) do
+    GenServer.call(via(agent_name), :active_channel)
   end
 
   @doc "Stop the agent gracefully."
@@ -147,7 +141,28 @@ defmodule Hive.Agent do
       active_channel: nil
     }
 
-    {:ok, state}
+    {:ok, state, {:continue, :send_catch_up}}
+  end
+
+  @impl true
+  def handle_continue(:send_catch_up, state) do
+    catch_up = build_catch_up(state)
+
+    if catch_up != "" do
+      send_to_sdk(
+        state,
+        """
+        [system]
+        timestamp=#{format_timestamp(DateTime.utc_now())}
+        body:
+        Server restarted. Recent messages from your subscribed channels are below. Review them for context on what was happening before the restart.
+        #{catch_up}
+        [/system]
+        """
+      )
+    end
+
+    {:noreply, state}
   end
 
   @impl true
@@ -176,7 +191,8 @@ defmodule Hive.Agent do
       status: state.status,
       topics: MapSet.to_list(state.topics),
       dms: MapSet.to_list(state.dms),
-      session_id: state.session_id
+      session_id: state.session_id,
+      active_channel: state.active_channel
     }
 
     {:reply, info, state}
@@ -186,19 +202,13 @@ defmodule Hive.Agent do
     {:reply, state.status, state}
   end
 
+  def handle_call(:active_channel, _from, state) do
+    {:reply, state.active_channel, state}
+  end
+
   # -- Casts ----------------------------------------------------------------
 
   @impl true
-  def handle_cast({:deliver_message, topic_name, message}, state) do
-    state = maybe_start_activity(state, "topic", topic_name, message.sender)
-
-    if message.sender != state.name do
-      send_to_sdk(state, render_message("topic", topic_name, message))
-    end
-
-    {:noreply, state}
-  end
-
   def handle_cast({:inject_message, message}, state) do
     send_to_sdk(state, render_system_message(message))
     {:noreply, state}
@@ -266,7 +276,11 @@ defmodule Hive.Agent do
   # -- Info: SDK subprocess stdout -----------------------------------------
 
   def handle_info({port, {:data, {:eol, line}}}, %{sdk_port: port} = state) do
-    case Jason.decode(line) do
+    # Reassemble line from any buffered noeol partials
+    full_line = state.line_buffer <> line
+    state = %{state | line_buffer: ""}
+
+    case Jason.decode(full_line) do
       {:ok, %{"type" => "status", "status" => status}} when status in ["idle", "thinking"] ->
         new_status = String.to_existing_atom(status)
         Phoenix.PubSub.broadcast(Hive.PubSub, "agents", {:status, state.name, new_status})
@@ -295,10 +309,9 @@ defmodule Hive.Agent do
     end
   end
 
-  # Partial line data (line mode can emit noeol chunks)
-  def handle_info({port, {:data, {:noeol, _partial}}}, %{sdk_port: port} = state) do
-    # Partial lines are buffered by the port driver; wait for :eol
-    {:noreply, state}
+  # Partial line data (line mode can emit noeol chunks for long lines)
+  def handle_info({port, {:data, {:noeol, partial}}}, %{sdk_port: port} = state) do
+    {:noreply, %{state | line_buffer: state.line_buffer <> partial}}
   end
 
   # -- Info: SDK subprocess crash ------------------------------------------
@@ -374,7 +387,7 @@ defmodule Hive.Agent do
         :exit_status,
         args: ["-c", shell_cmd],
         env: env,
-        line: 4096
+        line: 65_536
       ]
     )
   end
@@ -498,8 +511,11 @@ defmodule Hive.Agent do
     should be seen by others MUST go through these tools.
 
     ### Communication
-    - send_message: post to a topic you're subscribed to
-    - send_dm: private message to another agent or "human"
+    - send_message: post to the active topic. If a topic message triggered your turn,
+      reply in that same topic unless you have a strong reason not to.
+    - send_dm: private message to another agent or "human". If the current turn came
+      from a topic, only use send_dm for an intentional out-of-band follow-up and
+      include a reason.
     - create_topic: create a new chat group, optionally invite agents
     - join_topic / leave_topic: manage your subscriptions
     - get_topic_history: read past messages from a topic (doesn't bloat your context)
@@ -536,8 +552,12 @@ defmodule Hive.Agent do
       -- only respond when you have new information, a question, or an actionable
       suggestion. If you've already made your point, stay silent.
     - For code execution, file operations, or web tasks, use execute_in_container.
+    - Reply in the same channel that triggered the work. Do not move a topic
+      conversation into a DM unless privacy or scope genuinely requires it.
     - You receive messages in real-time. Use get_topic_history only when you need older context.
     - When a container completes, you'll receive a [system] notification with the result.
+    - Do not invent provenance such as "project memory" or claim that you ran commands,
+      inspected files, or changed code unless you actually used the corresponding tool.
     """
 
     path = Path.join(agent_dir, "CLAUDE.md")
@@ -569,25 +589,18 @@ defmodule Hive.Agent do
     state.topics
     |> MapSet.to_list()
     |> Enum.map(fn topic_name ->
-      case Registry.lookup(Hive.TopicRegistry, topic_name) do
-        [{_pid, _}] ->
-          messages = Hive.Topic.recent(topic_name, 5)
+      case Hive.Persistence.get_messages(topic_name, 5) do
+        {:ok, messages} when messages != [] ->
+          header = "[channel_history]\nchannel_type=topic\nchannel_name=#{topic_name}"
 
-          if messages != [] do
-            header = "[channel_history]\nchannel_type=topic\nchannel_name=#{topic_name}"
+          lines =
+            messages
+            |> Enum.map(&render_history_message("topic", topic_name, &1))
+            |> Enum.join("\n")
 
-            lines =
-              messages
-              |> Enum.reverse()
-              |> Enum.map(&render_history_message("topic", topic_name, &1))
-              |> Enum.join("\n")
+          header <> "\n" <> lines <> "\n[/channel_history]"
 
-            header <> "\n" <> lines <> "\n[/channel_history]"
-          else
-            nil
-          end
-
-        [] ->
+        _ ->
           nil
       end
     end)
@@ -651,18 +664,23 @@ defmodule Hive.Agent do
     end
   end
 
-  defp maybe_stop_activity(state, :idle), do: stop_active_typing(state)
+  defp maybe_stop_activity(state, :idle), do: stop_active_typing(state, preserve_channel: true)
   defp maybe_stop_activity(state, _status), do: state
 
-  defp stop_active_typing(%{active_channel: nil} = state), do: state
+  defp stop_active_typing(state), do: stop_active_typing(state, preserve_channel: false)
+  defp stop_active_typing(%{active_channel: nil} = state, _opts), do: state
 
-  defp stop_active_typing(%{active_channel: {_channel_type, channel_name}} = state) do
+  defp stop_active_typing(%{active_channel: {_channel_type, channel_name}} = state, opts) do
     safe_broadcast(
       "topic:#{channel_name}",
       {:typing, %{topic: channel_name, agent: state.name, typing: false}}
     )
 
-    %{state | active_channel: nil}
+    if Keyword.get(opts, :preserve_channel, false) do
+      state
+    else
+      %{state | active_channel: nil}
+    end
   end
 
   defp safe_broadcast(topic, payload) do

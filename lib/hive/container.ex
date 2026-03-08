@@ -18,13 +18,19 @@ defmodule Hive.Container do
 
   @max_per_agent 16
   @max_buffer_lines 30
+  @default_timeout_ms 600_000
+  @min_timeout_minutes 1
+  @max_timeout_minutes 60
+  @default_image "hive-claude-code:latest"
 
   defstruct [
     :id,
     :agent_name,
     :task,
+    :task_input,
     :port,
     :timer_ref,
+    :timeout_ms,
     :status,
     buffer: []
   ]
@@ -43,36 +49,46 @@ defmodule Hive.Container do
     - `"context"` — additional context
     - `"timeout_minutes"` — override default timeout
 
-  Returns `{:ok, container_id}` or `{:error, :limit_reached, message}`.
+  Returns `{:ok, container_id}` or `{:error, message}`.
   """
-  def start(agent_name, task_input, timeout_ms \\ 600_000) do
+  def start(agent_name, task_input, timeout_ms \\ @default_timeout_ms) do
     if count_by_agent(agent_name) >= @max_per_agent do
-      {:error, :limit_reached,
+      {:error,
        "Agent #{agent_name} has reached the maximum of #{@max_per_agent} concurrent containers"}
     else
       container_id = "hive-#{agent_name}-#{:erlang.unique_integer([:positive])}"
 
-      # Allow timeout_minutes from task_input to override the default
-      timeout_ms =
-        case task_input do
-          %{"timeout_minutes" => minutes} when is_number(minutes) and minutes > 0 ->
-            round(minutes * 60_000)
+      with :ok <- validate_execution(task_input, timeout_ms),
+           {:ok, resolved_timeout_ms} <- resolve_timeout_ms(task_input, timeout_ms) do
+        case DynamicSupervisor.start_child(
+               Hive.ContainerSup,
+               {__MODULE__,
+                id: container_id,
+                agent_name: agent_name,
+                task_input: task_input,
+                timeout_ms: resolved_timeout_ms}
+             ) do
+          {:ok, _pid} ->
+            {:ok, container_id}
 
-          _ ->
-            timeout_ms
+          {:error, reason} ->
+            Logger.error("Failed to start container #{container_id}: #{inspect(reason)}")
+            {:error, "Failed to launch container: #{format_reason(reason)}"}
         end
-
-      case DynamicSupervisor.start_child(
-             Hive.ContainerSup,
-             {__MODULE__,
-              id: container_id,
-              agent_name: agent_name,
-              task_input: task_input,
-              timeout_ms: timeout_ms}
-           ) do
-        {:ok, _pid} -> {:ok, container_id}
-        {:error, reason} -> {:error, reason}
       end
+    end
+  end
+
+  @doc """
+  Validate a container execution request before attempting to launch it.
+  """
+  def validate_execution(task_input, default_timeout_ms \\ @default_timeout_ms) do
+    with :ok <- validate_task(task_input),
+         {:ok, _timeout_ms} <- resolve_timeout_ms(task_input, default_timeout_ms),
+         :ok <- validate_docker_available(),
+         :ok <- validate_image_available(),
+         :ok <- validate_api_key() do
+      :ok
     end
   end
 
@@ -112,13 +128,15 @@ defmodule Hive.Container do
   Called on application startup to clean up orphans from previous runs.
   """
   def cleanup_orphaned_containers do
-    case System.cmd("docker", ["ps", "--filter", "name=hive-", "--format", "{{.Names}}"]) do
+    case System.cmd(
+           docker_executable(),
+           ["ps", "--filter", "name=hive-", "--format", "{{.Names}}"], stderr_to_stdout: true) do
       {output, 0} ->
         containers = String.split(output, "\n", trim: true)
 
         Enum.each(containers, fn name ->
           Logger.info("Cleaning up orphaned container: #{name}")
-          System.cmd("docker", ["kill", name])
+          System.cmd(docker_executable(), ["kill", name])
         end)
 
         {:ok, length(containers)}
@@ -139,6 +157,18 @@ defmodule Hive.Container do
     GenServer.start_link(__MODULE__, opts, name: via(id, agent_name))
   end
 
+  def child_spec(opts) do
+    id = Keyword.fetch!(opts, :id)
+
+    %{
+      id: {__MODULE__, id},
+      start: {__MODULE__, :start_link, [opts]},
+      restart: :temporary,
+      shutdown: 5_000,
+      type: :worker
+    }
+  end
+
   # ---------------------------------------------------------------------------
   # GenServer callbacks
   # ---------------------------------------------------------------------------
@@ -151,53 +181,54 @@ defmodule Hive.Container do
     timeout_ms = Keyword.fetch!(opts, :timeout_ms)
 
     task = task_input["task"] || "No task description provided"
-    prompt = build_prompt(task_input)
-
-    docker_args = [
-      "run",
-      "--rm",
-      "--name",
-      id,
-      "--env",
-      "ANTHROPIC_API_KEY=#{api_key()}",
-      "--network",
-      "bridge",
-      "hive-claude-code:latest",
-      "-p",
-      prompt,
-      "--output-format",
-      "json"
-    ]
-
-    port =
-      Port.open({:spawn_executable, docker_executable()}, [
-        :binary,
-        :exit_status,
-        :stderr_to_stdout,
-        args: docker_args
-      ])
-
-    timer_ref = Process.send_after(self(), :timeout, timeout_ms)
-
-    Phoenix.PubSub.broadcast(
-      Hive.PubSub,
-      "containers",
-      {:started, agent_name, id, task}
-    )
-
-    Logger.info("Container #{id} started for agent #{agent_name}: #{task}")
 
     state = %__MODULE__{
       id: id,
       agent_name: agent_name,
       task: task,
-      port: port,
+      task_input: task_input,
+      port: nil,
       buffer: [],
-      timer_ref: timer_ref,
-      status: :running
+      timer_ref: nil,
+      timeout_ms: timeout_ms,
+      status: :starting
     }
 
-    {:ok, state}
+    {:ok, state, {:continue, :launch_container}}
+  end
+
+  @impl true
+  def handle_continue(:launch_container, state) do
+    case open_container_port(state) do
+      {:ok, port} ->
+        timer_ref = Process.send_after(self(), :timeout, state.timeout_ms)
+
+        Phoenix.PubSub.broadcast(
+          Hive.PubSub,
+          "containers",
+          {:started, state.agent_name, state.id, state.task}
+        )
+
+        Logger.info("Container #{state.id} started for agent #{state.agent_name}: #{state.task}")
+
+        {:noreply, %{state | port: port, timer_ref: timer_ref, status: :running}}
+
+      {:error, reason} ->
+        message = "Startup failed: #{reason}"
+        failed_state = %{state | status: :failed, buffer: [message]}
+
+        Logger.error("Container #{state.id} failed to launch: #{reason}")
+
+        notify_agent(failed_state, :startup_failed)
+
+        Phoenix.PubSub.broadcast(
+          Hive.PubSub,
+          "containers",
+          {:stopped, state.id, :failed}
+        )
+
+        {:stop, :normal, failed_state}
+    end
   end
 
   @impl true
@@ -218,7 +249,7 @@ defmodule Hive.Container do
   end
 
   @impl true
-  def handle_cast(:kill, %{status: :running} = state) do
+  def handle_cast(:kill, %{status: status} = state) when status in [:starting, :running] do
     cancel_timer(state.timer_ref)
     docker_kill(state.id)
 
@@ -345,6 +376,7 @@ defmodule Hive.Container do
         0 -> "completed successfully"
         :timeout -> "timed out"
         :killed -> "was killed"
+        :startup_failed -> "failed to start"
         code when is_integer(code) -> "failed with exit code #{code}"
         other -> "ended with status: #{inspect(other)}"
       end
@@ -377,13 +409,145 @@ defmodule Hive.Container do
 
   defp docker_kill(container_id) do
     Task.start(fn ->
-      System.cmd("docker", ["kill", container_id], stderr_to_stdout: true)
+      System.cmd(docker_executable(), ["kill", container_id], stderr_to_stdout: true)
     end)
   end
 
   defp docker_executable do
-    System.find_executable("docker") || "docker"
+    Application.get_env(:hive, :container_docker_executable) || System.find_executable("docker") ||
+      "docker"
   end
+
+  defp open_container_port(state) do
+    prompt = build_prompt(state.task_input)
+
+    docker_args = [
+      "run",
+      "--rm",
+      "--name",
+      state.id,
+      "--env",
+      "ANTHROPIC_API_KEY=#{api_key()}",
+      "--network",
+      "bridge",
+      image_name(),
+      "-p",
+      prompt,
+      "--output-format",
+      "json"
+    ]
+
+    try do
+      {:ok,
+       Port.open({:spawn_executable, docker_executable()}, [
+         :binary,
+         :exit_status,
+         :stderr_to_stdout,
+         args: docker_args
+       ])}
+    catch
+      kind, reason ->
+        {:error, format_reason({kind, reason})}
+    end
+  end
+
+  defp resolve_timeout_ms(task_input, default_timeout_ms) do
+    case Map.get(task_input, "timeout_minutes") do
+      nil ->
+        {:ok, default_timeout_ms}
+
+      minutes ->
+        with {:ok, normalized_minutes} <- normalize_timeout_minutes(minutes),
+             true <-
+               normalized_minutes >= @min_timeout_minutes and
+                 normalized_minutes <= @max_timeout_minutes do
+          {:ok, round(normalized_minutes * 60_000)}
+        else
+          false ->
+            {:error,
+             "timeout_minutes must be between #{@min_timeout_minutes} and #{@max_timeout_minutes}"}
+
+          {:error, _} ->
+            {:error,
+             "timeout_minutes must be between #{@min_timeout_minutes} and #{@max_timeout_minutes}"}
+        end
+    end
+  end
+
+  defp normalize_timeout_minutes(minutes) when is_integer(minutes), do: {:ok, minutes}
+  defp normalize_timeout_minutes(minutes) when is_float(minutes), do: {:ok, minutes}
+
+  defp normalize_timeout_minutes(minutes) when is_binary(minutes) do
+    case Float.parse(minutes) do
+      {value, ""} -> {:ok, value}
+      _ -> {:error, :invalid_timeout}
+    end
+  end
+
+  defp normalize_timeout_minutes(_minutes), do: {:error, :invalid_timeout}
+
+  defp validate_task(%{"task" => task}) when is_binary(task) do
+    if String.trim(task) == "" do
+      {:error, "task is required"}
+    else
+      :ok
+    end
+  end
+
+  defp validate_task(_task_input), do: {:error, "task is required"}
+
+  defp validate_docker_available do
+    case Application.get_env(:hive, :container_docker_available) do
+      nil ->
+        if System.find_executable("docker") do
+          :ok
+        else
+          {:error, "docker is not installed or not on PATH"}
+        end
+
+      true ->
+        :ok
+
+      false ->
+        {:error, "docker is not installed or not on PATH"}
+    end
+  end
+
+  defp validate_image_available do
+    case Application.get_env(:hive, :container_image_available) do
+      nil ->
+        case System.cmd(docker_executable(), ["image", "inspect", image_name()],
+               stderr_to_stdout: true
+             ) do
+          {_, 0} -> :ok
+          {_output, _code} -> {:error, "container image #{image_name()} is not available locally"}
+        end
+
+      true ->
+        :ok
+
+      false ->
+        {:error, "container image #{image_name()} is not available locally"}
+    end
+  rescue
+    ErlangError -> {:error, "container image #{image_name()} is not available locally"}
+  end
+
+  defp validate_api_key do
+    if api_key() |> to_string() |> String.trim() == "" do
+      {:error, "ANTHROPIC_API_KEY is not configured"}
+    else
+      :ok
+    end
+  end
+
+  defp image_name do
+    Application.get_env(:hive, :container_image_name, @default_image)
+  end
+
+  defp format_reason({kind, reason}), do: "#{kind}: #{Exception.format_banner(kind, reason)}"
+  defp format_reason(reason) when is_binary(reason), do: reason
+  defp format_reason(reason), do: inspect(reason)
 
   defp api_key do
     Application.get_env(:hive, :anthropic_api_key) || ""
