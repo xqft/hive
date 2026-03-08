@@ -261,12 +261,8 @@ defmodule HiveWeb.ToolsController do
     {:error, "Unknown tool: #{tool}"}
   end
 
-  defp sender_kind("human"), do: "human"
-  defp sender_kind(_sender), do: "agent"
-
-  defp format_history_timestamp(%DateTime{} = timestamp), do: DateTime.to_iso8601(timestamp)
-  defp format_history_timestamp(timestamp) when is_binary(timestamp), do: timestamp
-  defp format_history_timestamp(_timestamp), do: "unknown"
+  defdelegate sender_kind(sender), to: Hive.Util
+  defdelegate format_history_timestamp(ts), to: Hive.Util, as: :format_timestamp
 
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
@@ -355,14 +351,7 @@ defmodule HiveWeb.ToolsController do
     end
   end
 
-  defp dm_other_party("dm:" <> rest, self_name) do
-    case String.split(rest, ":", parts: 2) do
-      [a, b] -> if a == self_name, do: b, else: a
-      _ -> self_name
-    end
-  end
-
-  defp dm_other_party(_, self_name), do: self_name
+  defdelegate dm_other_party(dm_name, self_name), to: Hive.Util
 
   defp blank_to_nil(value) when is_binary(value) do
     case String.trim(value) do

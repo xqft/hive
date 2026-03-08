@@ -510,16 +510,7 @@ defmodule HiveWeb.AgentEditorLive do
     end
   end
 
-  defp parse_json_field(nil, default), do: default
-
-  defp parse_json_field(value, default) when is_binary(value) do
-    case Jason.decode(value) do
-      {:ok, parsed} -> parsed
-      _ -> default
-    end
-  end
-
-  defp parse_json_field(value, _default), do: value
+  defdelegate parse_json_field(value, default), to: Hive.Util
 
   # ---------------------------------------------------------------------------
   # Assign helpers

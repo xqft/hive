@@ -642,7 +642,7 @@ defmodule Hive.Agent do
     channel_type=#{channel_type}
     channel_name=#{channel_name}
     sender=#{message.sender}
-    sender_kind=#{Map.get(message, :sender_kind, infer_sender_kind(message.sender))}
+    sender_kind=#{Map.get(message, :sender_kind, Hive.Util.sender_kind(message.sender))}
     timestamp=#{format_timestamp(message.ts)}
     body:
     #{message.body}
@@ -652,7 +652,7 @@ defmodule Hive.Agent do
 
   defp render_history_message(channel_type, channel_name, message) do
     """
-    - channel_type=#{channel_type} channel_name=#{channel_name} sender=#{message.sender} sender_kind=#{Map.get(message, :sender_kind, infer_sender_kind(message.sender))} timestamp=#{format_timestamp(message.ts)}
+    - channel_type=#{channel_type} channel_name=#{channel_name} sender=#{message.sender} sender_kind=#{Map.get(message, :sender_kind, Hive.Util.sender_kind(message.sender))} timestamp=#{format_timestamp(message.ts)}
       #{message.body}
     """
     |> String.trim_trailing()
@@ -668,9 +668,7 @@ defmodule Hive.Agent do
     """
   end
 
-  defp format_timestamp(%DateTime{} = timestamp), do: DateTime.to_iso8601(timestamp)
-  defp format_timestamp(timestamp) when is_binary(timestamp), do: timestamp
-  defp format_timestamp(_timestamp), do: "unknown"
+  defdelegate format_timestamp(ts), to: Hive.Util
 
   defp maybe_start_activity(state, channel_type, channel_name, sender) do
     if sender == state.name do
@@ -707,16 +705,7 @@ defmodule Hive.Agent do
     end
   end
 
-  defp safe_broadcast(topic, payload) do
-    Phoenix.PubSub.broadcast(Hive.PubSub, topic, payload)
-  rescue
-    _ -> :ok
-  catch
-    :exit, _ -> :ok
-  end
-
-  defp infer_sender_kind("human"), do: "human"
-  defp infer_sender_kind(_sender), do: "agent"
+  defdelegate safe_broadcast(topic, payload), to: Hive.Util
 
   defp agent_dir(agent_name) do
     Path.join(["priv", "agents", agent_name]) |> Path.expand()
@@ -751,18 +740,5 @@ defmodule Hive.Agent do
     "http://localhost:#{port}"
   end
 
-  # ---------------------------------------------------------------------------
-  # JSON field parsing helper
-  # ---------------------------------------------------------------------------
-
-  defp parse_json_field(nil, default), do: default
-
-  defp parse_json_field(value, default) when is_binary(value) do
-    case Jason.decode(value) do
-      {:ok, parsed} -> parsed
-      _ -> default
-    end
-  end
-
-  defp parse_json_field(value, _default), do: value
+  defdelegate parse_json_field(value, default), to: Hive.Util
 end

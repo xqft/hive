@@ -292,18 +292,7 @@ defmodule Hive.Topic do
     end
   end
 
-  defp safe_broadcast(topic, payload) do
-    Phoenix.PubSub.broadcast(Hive.PubSub, topic, payload)
-  rescue
-    _ -> :ok
-  catch
-    :exit, _ -> :ok
-  end
-
-  defp sender_kind("human"), do: "human"
-  defp sender_kind(_sender), do: "agent"
-
-  defp with_sender_kind(msg) do
-    Map.put_new(msg, :sender_kind, sender_kind(msg.sender))
-  end
+  defdelegate safe_broadcast(topic, payload), to: Hive.Util
+  defdelegate sender_kind(sender), to: Hive.Util
+  defdelegate with_sender_kind(msg), to: Hive.Util
 end

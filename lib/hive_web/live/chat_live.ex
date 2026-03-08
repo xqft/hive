@@ -755,14 +755,7 @@ defmodule HiveWeb.ChatLive do
 
   defp dm_display_name(name), do: name
 
-  defp dm_other_party("dm:" <> rest, self_name) do
-    case String.split(rest, ":", parts: 2) do
-      [a, b] -> if a == self_name, do: b, else: a
-      _ -> self_name
-    end
-  end
-
-  defp dm_other_party(_, _), do: "unknown"
+  defdelegate dm_other_party(dm_name, self_name), to: Hive.Util
 
   defp typing_summary([agent]), do: "#{agent} is typing"
   defp typing_summary([first, second]), do: "#{first}, #{second} are typing"
@@ -900,13 +893,7 @@ defmodule HiveWeb.ChatLive do
     end
   end
 
-  defp with_sender_kind(message) do
-    Map.put_new(message, :sender_kind, inferred_sender_kind(Map.get(message, :sender)))
-  end
-
-  defp inferred_sender_kind("human"), do: "human"
-  defp inferred_sender_kind("system"), do: "system"
-  defp inferred_sender_kind(_sender), do: "agent"
+  defdelegate with_sender_kind(message), to: Hive.Util
 
   defp maybe_assign_active_messages(socket, topic, topic_messages) do
     if topic == socket.assigns.active_topic do
