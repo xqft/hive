@@ -24,6 +24,8 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/hive"
 import topbar from "../vendor/topbar"
+import { Terminal as XTerm } from "../vendor/xterm/xterm.mjs"
+import { FitAddon } from "../vendor/xterm/addon-fit.mjs"
 
 const MENTION_PATTERN = /@([A-Za-z0-9][A-Za-z0-9_-]{0,30})/g
 const WORD_CHAR_PATTERN = /[A-Za-z0-9_-]/
@@ -267,6 +269,52 @@ const MentionProfileCard = {
 }
 
 const Hooks = {
+  Terminal: {
+    mounted() {
+      this.term = new XTerm({
+        cursorBlink: true,
+        fontFamily: "var(--ui-font-mono)",
+        fontSize: 14,
+        theme: {
+          background: '#0a0a0f',
+          foreground: '#d4d4d8',
+          cursor: '#d4d4d8',
+          selectionBackground: 'rgba(96, 165, 250, 0.3)',
+        }
+      })
+      this.fitAddon = new FitAddon()
+      this.term.loadAddon(this.fitAddon)
+      this.term.open(this.el)
+      this.fitAddon.fit()
+
+      // Send initial resize to server
+      const { cols, rows } = this.term
+      this.pushEvent("terminal_resize", { cols, rows })
+
+      // Receive output from server
+      this.handleEvent("terminal_output", ({ data }) => {
+        this.term.write(Uint8Array.from(atob(data), c => c.charCodeAt(0)))
+      })
+
+      // Send input to server
+      this.term.onData((data) => {
+        this.pushEvent("terminal_input", { data: btoa(data) })
+      })
+
+      // Handle window resize
+      this.resizeObserver = new ResizeObserver(() => {
+        this.fitAddon.fit()
+        this.pushEvent("terminal_resize", { cols: this.term.cols, rows: this.term.rows })
+      })
+      this.resizeObserver.observe(this.el)
+    },
+
+    destroyed() {
+      this.resizeObserver?.disconnect()
+      this.term?.dispose()
+    }
+  },
+
   ScrollBottom: {
     mounted() {
       this.stickToBottom = true;

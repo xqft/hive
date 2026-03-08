@@ -3,18 +3,34 @@ defmodule HiveWeb.ContainerLive do
 
   @impl true
   def mount(%{"id" => container_id}, _session, socket) do
-    if connected?(socket) do
-      Phoenix.PubSub.subscribe(Hive.PubSub, "container:#{container_id}")
-    end
+    relay =
+      if connected?(socket) do
+        Phoenix.PubSub.subscribe(Hive.PubSub, "container:#{container_id}")
+        Phoenix.PubSub.subscribe(Hive.PubSub, "containers")
 
-    {status, initial_output} = load_initial_state(container_id)
+        case Hive.Container.check(container_id) do
+          {:ok, _} ->
+            case Hive.TerminalRelay.start_link(
+                   container_id: container_id,
+                   viewer: self()
+                 ) do
+              {:ok, pid} -> pid
+              {:error, _} -> nil
+            end
+
+          {:error, :not_found} ->
+            nil
+        end
+      end
+
+    {status, _} = load_initial_state(container_id)
 
     {:ok,
      assign(socket,
        page_title: container_id,
        container_id: container_id,
        status: status,
-       output: initial_output
+       relay: relay
      )}
   end
 
@@ -25,7 +41,7 @@ defmodule HiveWeb.ContainerLive do
       <.app_shell
         current={:dashboard}
         title="Container"
-        subtitle="Live runtime output with a quieter, terminal-forward presentation."
+        subtitle={@container_id}
       >
         <:actions>
           <.button
@@ -48,9 +64,16 @@ defmodule HiveWeb.ContainerLive do
             <.container_status_badge status={@status} />
           </div>
 
-          <div class="ui-code-terminal" id="output" phx-hook="ScrollBottom">
-            <pre :for={line <- @output}><code>{line}</code></pre>
-            <pre :if={@output == []}><code class="text-slate-400">Waiting for output...</code></pre>
+          <div
+            :if={@status in [:running, :completed, :failed]}
+            id="terminal"
+            phx-hook="Terminal"
+            class="ui-terminal"
+            phx-update="ignore"
+          />
+
+          <div :if={@status == :not_found} class="ui-empty">
+            Container not found
           </div>
         </div>
       </.app_shell>
@@ -71,13 +94,21 @@ defmodule HiveWeb.ContainerLive do
     """
   end
 
-  # -- PubSub handlers --------------------------------------------------------
+  # -- Terminal relay handlers -------------------------------------------------
 
   @impl true
-  def handle_info({:output, data}, socket) do
-    new_lines = String.split(data, "\n", trim: true)
-    output = socket.assigns.output ++ new_lines
-    {:noreply, assign(socket, :output, output)}
+  def handle_info({:terminal_output, data}, socket) do
+    {:noreply, push_event(socket, "terminal_output", %{data: Base.encode64(data)})}
+  end
+
+  def handle_info(:terminal_closed, socket) do
+    {:noreply, socket}
+  end
+
+  # Container status updates from PubSub
+  def handle_info({:stopped, container_id, status}, socket)
+      when container_id == socket.assigns.container_id do
+    {:noreply, assign(socket, :status, status)}
   end
 
   def handle_info(_msg, socket) do
@@ -87,6 +118,22 @@ defmodule HiveWeb.ContainerLive do
   # -- Events -----------------------------------------------------------------
 
   @impl true
+  def handle_event("terminal_input", %{"data" => data}, socket) do
+    if socket.assigns.relay do
+      Hive.TerminalRelay.send_input(socket.assigns.relay, Base.decode64!(data))
+    end
+
+    {:noreply, socket}
+  end
+
+  def handle_event("terminal_resize", %{"cols" => cols, "rows" => rows}, socket) do
+    if socket.assigns.relay do
+      Hive.TerminalRelay.resize(socket.assigns.relay, cols, rows)
+    end
+
+    {:noreply, socket}
+  end
+
   def handle_event("kill", _params, socket) do
     Hive.Container.kill(socket.assigns.container_id)
     {:noreply, push_navigate(socket, to: ~p"/dashboard")}
@@ -96,12 +143,8 @@ defmodule HiveWeb.ContainerLive do
 
   defp load_initial_state(container_id) do
     case Hive.Container.check(container_id) do
-      {:ok, status_string} ->
-        lines = String.split(status_string, "\n", trim: true)
-        {:running, lines}
-
-      {:error, :not_found} ->
-        {:not_found, []}
+      {:ok, _status_string} -> {:running, []}
+      {:error, :not_found} -> {:not_found, []}
     end
   end
 end

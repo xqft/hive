@@ -16,6 +16,8 @@ defmodule HiveWeb.ToolsController do
     send_message send_dm create_topic join_topic leave_topic
     get_topic_history list_agents list_topics
     execute_in_container check_execution
+    send_to_container capture_container_output
+    container_new_window container_list_windows
     write_skill read_skill delete_skill write_claude_md
   )
 
@@ -218,6 +220,22 @@ defmodule HiveWeb.ToolsController do
 
   defp execute_tool(_agent, "check_execution", %{"container_id" => id}) do
     Hive.Container.check(id)
+  end
+
+  defp execute_tool(_agent, "send_to_container", %{"container_id" => id, "input" => input}) do
+    Hive.Container.send_input(id, input)
+  end
+
+  defp execute_tool(_agent, "capture_container_output", %{"container_id" => id}) do
+    Hive.Container.capture_output(id)
+  end
+
+  defp execute_tool(_agent, "container_new_window", %{"container_id" => id, "name" => name} = params) do
+    Hive.Container.new_window(id, name, params["command"])
+  end
+
+  defp execute_tool(_agent, "container_list_windows", %{"container_id" => id}) do
+    Hive.Container.list_windows(id)
   end
 
   defp execute_tool(agent, "write_skill", %{"name" => name, "content" => content}) do

@@ -1,6 +1,7 @@
 /* See the Tailwind configuration guide for advanced usage
    https://tailwindcss.com/docs/configuration */
 
+@import "../vendor/xterm/xterm.css";
 @import "tailwindcss" source(none);
 @source "../css";
 @source "../js";
@@ -986,6 +987,21 @@ select {
 .ui-code-terminal pre {
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.ui-terminal {
+  min-height: 500px;
+  max-height: 80vh;
+  border-radius: var(--ui-radius-lg);
+  border: 1px solid var(--ui-border);
+  background: #0a0a0f;
+  box-shadow: var(--ui-shadow-md);
+  overflow: hidden;
+  padding: 4px;
+}
+
+.ui-terminal .xterm {
+  height: 100%;
 }
 
 .phx-click-loading .ui-button,

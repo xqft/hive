@@ -34,11 +34,9 @@ defmodule Hive.ContainerTest do
 
     exit_code = Keyword.get(opts, :exit_code, "0")
     sleep = Keyword.get(opts, :sleep, "0")
-    output = Keyword.get(opts, :output, "mock output line")
 
     put_sys_env("MOCK_DOCKER_EXIT_CODE", to_string(exit_code))
     put_sys_env("MOCK_DOCKER_SLEEP", to_string(sleep))
-    put_sys_env("MOCK_DOCKER_OUTPUT", to_string(output))
   end
 
   # Wait for a GenServer to fully terminate and unregister from ContainerRegistry.
@@ -81,7 +79,6 @@ defmodule Hive.ContainerTest do
     assert_receive {:stopped, ^container_id, :failed}, 1_000
     assert_receive {:system_message, message}, 1_000
     assert message =~ "[Container #{container_id}] failed to start"
-    assert message =~ "Startup failed:"
 
     refute_receive {:stopped, ^container_id, :failed}, 200
     refute_receive {:system_message, _}, 200
@@ -93,7 +90,7 @@ defmodule Hive.ContainerTest do
   # --------------------------------------------------------------------------
 
   test "successful execution broadcasts started/stopped and notifies agent with exit code 0" do
-    use_mock_docker(exit_code: 0, output: "all good")
+    use_mock_docker(exit_code: 0)
 
     assert {:ok, container_id} =
              Hive.Container.start("container-test-agent", %{"task" => "do stuff"})
@@ -113,7 +110,7 @@ defmodule Hive.ContainerTest do
   # --------------------------------------------------------------------------
 
   test "failed execution (non-zero exit) broadcasts :failed and notifies agent" do
-    use_mock_docker(exit_code: 1, output: "something broke")
+    use_mock_docker(exit_code: 1)
 
     assert {:ok, container_id} =
              Hive.Container.start("container-test-agent", %{"task" => "break things"})
@@ -131,11 +128,8 @@ defmodule Hive.ContainerTest do
   # 3. Timeout
   # --------------------------------------------------------------------------
 
-  test "container times out, gets killed, broadcasts :timed_out" do
-    # Use a short sleep so the port exits shortly after the timeout fires.
-    # The mock kill command doesn't actually kill the run process, so the run
-    # process must finish its sleep on its own for the exit_status to arrive.
-    use_mock_docker(exit_code: 0, sleep: 2, output: "working...")
+  test "container times out, gets stopped, broadcasts :timed_out" do
+    use_mock_docker(exit_code: 0, sleep: 2)
 
     # 100ms timeout — fires well before the 2s sleep finishes
     assert {:ok, container_id} =
@@ -146,7 +140,7 @@ defmodule Hive.ContainerTest do
              )
 
     assert_receive {:started, "container-test-agent", ^container_id, _}, 2_000
-    # The port will exit after ~2s sleep, then the timed_out handler fires
+    # The docker wait will exit after ~2s sleep, then the timed_out handler fires
     assert_receive {:stopped, ^container_id, :timed_out}, 5_000
 
     assert_receive {:system_message, message}, 2_000
@@ -160,10 +154,7 @@ defmodule Hive.ContainerTest do
   # --------------------------------------------------------------------------
 
   test "killing a running container broadcasts :killed and notifies agent" do
-    # Use a moderate sleep so the container is still running when we call kill.
-    # The kill handler calls {:stop, :normal, ...} which closes the port and
-    # terminates the GenServer immediately — no need to wait for the sleep.
-    use_mock_docker(exit_code: 0, sleep: 30, output: "running...")
+    use_mock_docker(exit_code: 0, sleep: 30)
 
     assert {:ok, container_id} =
              Hive.Container.start("container-test-agent", %{"task" => "killable task"})
@@ -206,28 +197,33 @@ defmodule Hive.ContainerTest do
   end
 
   # --------------------------------------------------------------------------
-  # 6. Output buffer capped at 30 lines
+  # 6. check returns tmux pane output
   # --------------------------------------------------------------------------
 
-  test "output buffer is capped at 30 lines" do
-    # Generate 50 lines of output
-    lines = Enum.map_join(1..50, "\n", fn i -> "line-#{i}" end)
-    use_mock_docker(exit_code: 0, output: lines)
+  test "check returns status info with tmux pane output" do
+    use_mock_docker(exit_code: 0, sleep: 5)
 
     assert {:ok, container_id} =
-             Hive.Container.start("container-test-agent", %{"task" => "lots of output"})
+             Hive.Container.start("container-test-agent", %{"task" => "check me"})
 
     assert_receive {:started, "container-test-agent", ^container_id, _}, 2_000
-    # Wait for container to complete so all output is buffered
-    assert_receive {:stopped, ^container_id, :completed}, 2_000
 
-    # The system_message includes the buffer contents (last 30 lines)
-    assert_receive {:system_message, message}, 2_000
-    assert message =~ "line-50"
-    # line-20 should have been evicted (only last 30 of 50 lines kept)
-    refute message =~ "\nline-20\n"
-    # line-21 is the first line in the 30-line window
-    assert message =~ "line-21"
+    # Small delay to let container fully start
+    Process.sleep(100)
+
+    assert {:ok, status_string} = Hive.Container.check(container_id)
+    assert status_string =~ "Container: #{container_id}"
+    assert status_string =~ "Status: running"
+    assert status_string =~ "Task: check me"
+    assert status_string =~ "Recent Output"
+
+    # Clean up: kill the long-running container
+    Hive.Container.kill(container_id)
+    assert_receive {:stopped, ^container_id, :killed}, 2_000
+  end
+
+  test "check returns :not_found for unknown container" do
+    assert {:error, :not_found} = Hive.Container.check("nonexistent-container-id")
   end
 
   # --------------------------------------------------------------------------
@@ -235,7 +231,7 @@ defmodule Hive.ContainerTest do
   # --------------------------------------------------------------------------
 
   test "container does not crash when agent is gone on completion" do
-    use_mock_docker(exit_code: 0, sleep: 1, output: "done")
+    use_mock_docker(exit_code: 0, sleep: 1)
 
     assert {:ok, container_id} =
              Hive.Container.start("container-test-agent", %{"task" => "orphan task"})
@@ -400,32 +396,22 @@ defmodule Hive.ContainerTest do
   end
 
   # --------------------------------------------------------------------------
-  # 10. check returns status info
+  # 10. New tmux tools
   # --------------------------------------------------------------------------
 
-  test "check returns status info for a running container" do
-    use_mock_docker(exit_code: 0, sleep: 5, output: "hello from container")
-
-    assert {:ok, container_id} =
-             Hive.Container.start("container-test-agent", %{"task" => "check me"})
-
-    assert_receive {:started, "container-test-agent", ^container_id, _}, 2_000
-
-    # Small delay to let output arrive
-    Process.sleep(100)
-
-    assert {:ok, status_string} = Hive.Container.check(container_id)
-    assert status_string =~ "Container: #{container_id}"
-    assert status_string =~ "Status: running"
-    assert status_string =~ "Task: check me"
-    assert status_string =~ "Recent Output"
-
-    # Clean up: kill the long-running container
-    Hive.Container.kill(container_id)
-    assert_receive {:stopped, ^container_id, :killed}, 2_000
+  test "send_input returns error for unknown container" do
+    assert {:error, _} = Hive.Container.send_input("nonexistent", "hello")
   end
 
-  test "check returns :not_found for unknown container" do
-    assert {:error, :not_found} = Hive.Container.check("nonexistent-container-id")
+  test "capture_output returns error for unknown container" do
+    assert {:error, _} = Hive.Container.capture_output("nonexistent")
+  end
+
+  test "list_windows returns error for unknown container" do
+    assert {:error, _} = Hive.Container.list_windows("nonexistent")
+  end
+
+  test "new_window returns error for unknown container" do
+    assert {:error, _} = Hive.Container.new_window("nonexistent", "test")
   end
 end

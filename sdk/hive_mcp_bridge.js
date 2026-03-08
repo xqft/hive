@@ -57,6 +57,25 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {
       container_id: { type: "string" }
     }, required: ["container_id"] }},
+  { name: "send_to_container", description: "Send input/command to a container's tmux session (followed by Enter)",
+    inputSchema: { type: "object", properties: {
+      container_id: { type: "string", description: "Container ID" },
+      input: { type: "string", description: "Text to send (followed by Enter)" }
+    }, required: ["container_id", "input"] }},
+  { name: "capture_container_output", description: "Capture current terminal output from a container's tmux session",
+    inputSchema: { type: "object", properties: {
+      container_id: { type: "string", description: "Container ID" }
+    }, required: ["container_id"] }},
+  { name: "container_new_window", description: "Create a new tmux window in a container",
+    inputSchema: { type: "object", properties: {
+      container_id: { type: "string", description: "Container ID" },
+      name: { type: "string", description: "Window name" },
+      command: { type: "string", description: "Command to run in new window" }
+    }, required: ["container_id", "name"] }},
+  { name: "container_list_windows", description: "List tmux windows in a container",
+    inputSchema: { type: "object", properties: {
+      container_id: { type: "string", description: "Container ID" }
+    }, required: ["container_id"] }},
   { name: "write_skill", description: "Create or update one of your own skills (SKILL.md files). Skills define knowledge and capabilities that persist across conversations.",
     inputSchema: { type: "object", properties: {
       name: { type: "string", description: "Skill name (directory name, e.g. 'vault-conventions')" },

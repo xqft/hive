@@ -7,7 +7,7 @@ ENV PATH="/root/.local/bin:${PATH}"
 
 # Install system dependencies (curl needed for Claude CLI install below)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl wget jq ripgrep sudo \
+    git curl wget jq ripgrep sudo tmux \
     python3 python3-pip \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
@@ -28,6 +28,9 @@ RUN useradd -m -s /bin/bash hive \
 USER hive
 ENV PATH="/home/hive/.local/bin:${PATH}"
 
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
 WORKDIR /workspace
 
-ENTRYPOINT ["claude", "--dangerously-skip-permissions"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

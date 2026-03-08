@@ -1,10 +1,9 @@
 #!/bin/bash
 # Mock docker CLI for Container lifecycle tests.
-# Handles: run, kill, image inspect, ps subcommands.
+# Handles: run, wait, stop, rm, kill, cp, exec, image inspect, ps subcommands.
 # Behavior controlled via environment variables:
-#   MOCK_DOCKER_EXIT_CODE - exit code for 'run' (default: 0)
-#   MOCK_DOCKER_SLEEP - seconds to sleep during 'run' (default: 0)
-#   MOCK_DOCKER_OUTPUT - output lines during 'run' (default: "mock output line")
+#   MOCK_DOCKER_EXIT_CODE - exit code for 'wait' (default: 0)
+#   MOCK_DOCKER_SLEEP - seconds to sleep during 'wait' (default: 0)
 
 case "$1" in
   run)
@@ -13,26 +12,80 @@ case "$1" in
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --name) NAME="$2"; shift 2 ;;
+        -d) shift ;; # detached mode — just skip
         *) shift ;;
       esac
     done
+    # Print container ID (docker run -d prints the container ID)
+    echo "$NAME"
+    exit 0
+    ;;
 
-    # Output lines
-    OUTPUT="${MOCK_DOCKER_OUTPUT:-mock output line}"
-    echo "$OUTPUT"
-
-    # Sleep if requested (for timeout tests)
+  wait)
+    # Simulate waiting for a container to exit
     SLEEP="${MOCK_DOCKER_SLEEP:-0}"
     if [ "$SLEEP" != "0" ]; then
       sleep "$SLEEP"
     fi
+    # Print the exit code (docker wait prints the exit code)
+    echo "${MOCK_DOCKER_EXIT_CODE:-0}"
+    exit 0
+    ;;
 
-    exit "${MOCK_DOCKER_EXIT_CODE:-0}"
+  stop)
+    # Just succeed
+    exit 0
+    ;;
+
+  rm)
+    # Just succeed
+    exit 0
     ;;
 
   kill)
     # Just succeed
     exit 0
+    ;;
+
+  cp)
+    # Just succeed
+    exit 0
+    ;;
+
+  exec)
+    # Handle exec subcommands
+    shift # consume 'exec'
+    # Skip container name
+    shift
+    case "$1" in
+      tmux)
+        case "$2" in
+          send-keys)
+            exit 0
+            ;;
+          capture-pane)
+            echo "mock terminal output"
+            exit 0
+            ;;
+          list-windows)
+            echo "0:main"
+            exit 0
+            ;;
+          new-window)
+            exit 0
+            ;;
+          resize-window)
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+        ;;
+      *)
+        exit 0
+        ;;
+    esac
     ;;
 
   image)
