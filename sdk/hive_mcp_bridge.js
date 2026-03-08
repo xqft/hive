@@ -54,14 +54,17 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {
       container_id: { type: "string" }
     }, required: ["container_id"] }},
-  { name: "send_to_container", description: "Send a command or input to a container's tmux session (followed by Enter). Use this to run shell commands, interact with programs, or send input to an interactive Claude Code session.",
+  { name: "send_to_container", description: "Send input to a container's tmux session. Use 'input' for shell commands (auto-appends Enter). Use 'keys' for raw key sequences (e.g. 'Enter', 'C-c', 'Up', 'Down'). Can target specific tmux windows.",
     inputSchema: { type: "object", properties: {
       container_id: { type: "string", description: "Container ID" },
-      input: { type: "string", description: "Text to send (followed by Enter)" }
-    }, required: ["container_id", "input"] }},
+      input: { type: "string", description: "Text to type followed by Enter (for shell commands)" },
+      keys: { type: "string", description: "Raw tmux key names, space-separated (e.g. 'Enter', 'C-c', 'Up Up Enter'). Use for TUI navigation." },
+      window: { type: "string", description: "Target tmux window index (default '0')" }
+    }, required: ["container_id"] }},
   { name: "capture_container_output", description: "Capture the current terminal output from a container's tmux session. Use to check what's on screen.",
     inputSchema: { type: "object", properties: {
-      container_id: { type: "string", description: "Container ID" }
+      container_id: { type: "string", description: "Container ID" },
+      window: { type: "string", description: "Target tmux window index (default '0')" }
     }, required: ["container_id"] }},
   { name: "container_new_window", description: "Create a new tmux window in a container",
     inputSchema: { type: "object", properties: {

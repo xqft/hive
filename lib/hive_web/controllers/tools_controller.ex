@@ -222,12 +222,12 @@ defmodule HiveWeb.ToolsController do
     Hive.Container.check(id)
   end
 
-  defp execute_tool(_agent, "send_to_container", %{"container_id" => id, "input" => input}) do
-    Hive.Container.send_input(id, input)
+  defp execute_tool(_agent, "send_to_container", %{"container_id" => id} = params) do
+    Hive.Container.send_input(id, params)
   end
 
-  defp execute_tool(_agent, "capture_container_output", %{"container_id" => id}) do
-    Hive.Container.capture_output(id)
+  defp execute_tool(_agent, "capture_container_output", %{"container_id" => id} = params) do
+    Hive.Container.capture_output(id, Map.get(params, "window", "0"))
   end
 
   defp execute_tool(_agent, "container_new_window", %{"container_id" => id, "name" => name} = params) do

@@ -111,16 +111,26 @@ defmodule Hive.Container do
   end
 
   @doc """
-  Send input text to a container's tmux session (followed by Enter).
+  Send input to a container's tmux session.
+
+  Options:
+    - `input` — text to type followed by Enter (for shell commands)
+    - `keys` — raw tmux key names, space-separated (e.g. "Enter", "C-c", "Up Enter")
+    - `window` — target window index (default "0")
+
+  Provide `input` for commands, `keys` for TUI interaction. If both given,
+  `input` is sent as literal text then `keys` are sent as key names.
   """
-  def send_input(container_id, text) do
+  def send_input(container_id, opts) when is_map(opts) do
     case Registry.lookup(Hive.ContainerRegistry, container_id) do
       [{_pid, _}] ->
         docker = docker_executable()
+        window = Map.get(opts, "window", "0")
+        target = "main:#{window}"
+        input = Map.get(opts, "input")
+        keys = Map.get(opts, "keys")
 
-        case System.cmd(docker, [
-               "exec", container_id, "tmux", "send-keys", "-t", "main", text, "Enter"
-             ], stderr_to_stdout: true) do
+        case exec_send_keys(docker, container_id, target, input, keys) do
           {_, 0} -> {:ok, "Input sent to container #{container_id}"}
           {output, _} -> {:error, "Failed to send input: #{String.trim(output)}"}
         end
@@ -130,16 +140,25 @@ defmodule Hive.Container do
     end
   end
 
+  # Legacy 2-arg form for backwards compatibility (tests, notify_agent, etc.)
+  def send_input(container_id, text) when is_binary(text) do
+    send_input(container_id, %{"input" => text})
+  end
+
   @doc """
   Capture the full scrollback output from a container's tmux session.
+
+  Options:
+    - `window` — target window index (default "0")
   """
-  def capture_output(container_id) do
+  def capture_output(container_id, window \\ "0") do
     case Registry.lookup(Hive.ContainerRegistry, container_id) do
       [{_pid, _}] ->
         docker = docker_executable()
+        target = "main:#{window}"
 
         case System.cmd(docker, [
-               "exec", container_id, "tmux", "capture-pane", "-p", "-S", "-", "-t", "main"
+               "exec", container_id, "tmux", "capture-pane", "-p", "-S", "-", "-t", target
              ], stderr_to_stdout: true) do
           {output, 0} -> {:ok, output}
           {output, _} -> {:error, "Failed to capture output: #{String.trim(output)}"}
@@ -431,6 +450,9 @@ defmodule Hive.Container do
         # Wait for tmux session to be ready
         wait_for_tmux(docker, state.id)
 
+        # Inject OAuth credentials so interactive Claude Code skips login
+        inject_oauth_credentials(docker, state.id)
+
         # Monitor container exit in background
         self_pid = self()
 
@@ -464,6 +486,87 @@ defmodule Hive.Container do
         Logger.warning("tmux session not ready after timeout for #{container_id}")
         :timeout
     end
+  end
+
+  # Execute send-keys based on input/keys combination.
+  # Uses two calls when both literal text and key names are needed,
+  # since tmux -l makes everything literal (no key name interpretation).
+  defp exec_send_keys(docker, container_id, target, input, keys) do
+    has_input = is_binary(input) and input != ""
+    has_keys = is_binary(keys) and keys != ""
+
+    cond do
+      has_input and has_keys ->
+        # Literal text first, then raw key names
+        System.cmd(docker, ["exec", container_id, "tmux", "send-keys", "-l", "-t", target, input],
+          stderr_to_stdout: true
+        )
+
+        System.cmd(
+          docker,
+          ["exec", container_id, "tmux", "send-keys", "-t", target | String.split(keys)],
+          stderr_to_stdout: true
+        )
+
+      has_input ->
+        # Text + Enter (default for shell commands)
+        System.cmd(docker, ["exec", container_id, "tmux", "send-keys", "-l", "-t", target, input],
+          stderr_to_stdout: true
+        )
+
+        System.cmd(docker, ["exec", container_id, "tmux", "send-keys", "-t", target, "Enter"],
+          stderr_to_stdout: true
+        )
+
+      has_keys ->
+        # Raw key names only (for TUI interaction)
+        System.cmd(
+          docker,
+          ["exec", container_id, "tmux", "send-keys", "-t", target | String.split(keys)],
+          stderr_to_stdout: true
+        )
+
+      true ->
+        # Just Enter
+        System.cmd(docker, ["exec", container_id, "tmux", "send-keys", "-t", target, "Enter"],
+          stderr_to_stdout: true
+        )
+    end
+  end
+
+  # Inject OAuth credentials file so interactive Claude Code skips the login flow.
+  # The env var CLAUDE_CODE_OAUTH_TOKEN works for -p mode but interactive mode
+  # requires stored credentials in ~/.claude/.credentials.json.
+  defp inject_oauth_credentials(docker, container_id) do
+    token = oauth_token()
+
+    if token != "" do
+      # Build a credentials JSON matching Claude Code's expected format.
+      # Far-future expiry so it doesn't try to refresh.
+      credentials = %{
+        "claudeAiOauth" => %{
+          "accessToken" => token,
+          "refreshToken" => "",
+          "expiresAt" => System.system_time(:millisecond) + 365 * 86_400_000,
+          "scopes" => [
+            "user:inference",
+            "user:profile",
+            "user:sessions:claude_code"
+          ]
+        }
+      }
+
+      tmp = "/tmp/#{container_id}_credentials.json"
+      File.write!(tmp, Jason.encode!(credentials))
+
+      System.cmd(docker, ["cp", tmp, "#{container_id}:/home/hive/.claude/.credentials.json"],
+        stderr_to_stdout: true
+      )
+
+      File.rm(tmp)
+    end
+  rescue
+    e -> Logger.warning("Failed to inject credentials for #{container_id}: #{inspect(e)}")
   end
 
   # Capture tmux pane from a running container via docker exec
