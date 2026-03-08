@@ -309,15 +309,20 @@ const ImageLightbox = {
 const Hooks = {
   Terminal: {
     mounted() {
+      const style = getComputedStyle(document.documentElement)
+      const bg = style.getPropertyValue('--ui-surface').trim() || '#0a0a0f'
+      const fg = style.getPropertyValue('--ui-text').trim() || '#d4d4d8'
+      const cursor = style.getPropertyValue('--ui-text-strong').trim() || '#d4d4d8'
+
       this.term = new XTerm({
         cursorBlink: true,
         fontFamily: "'JetBrains Mono', 'SFMono-Regular', 'IBM Plex Mono', 'Cascadia Code', monospace",
         fontSize: 14,
         lineHeight: 1.15,
         theme: {
-          background: '#0a0a0f',
-          foreground: '#d4d4d8',
-          cursor: '#d4d4d8',
+          background: bg,
+          foreground: fg,
+          cursor: cursor,
           selectionBackground: 'rgba(96, 165, 250, 0.3)',
         }
       })

@@ -181,7 +181,6 @@ defmodule HiveWeb.CoreComponents do
       <div class="ui-workspace">
         <header class="ui-workspace__header">
           <div>
-            <p class="ui-page-eyebrow">Agent orchestration</p>
             <h1 class="ui-page-title">{@title}</h1>
             <p :if={@subtitle} class="ui-page-subtitle">{@subtitle}</p>
           </div>
