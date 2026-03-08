@@ -66,7 +66,7 @@ async function processNext(batch) {
 
     const options = {
       model: "claude-opus-4-6",
-      effort: "high",
+      effort: "max",
       systemPrompt,
       allowedTools: ["Skill", ...hiveTools, ...extraToolPatterns],
       settingSources: [],  // Don't load filesystem settings, we provide everything
