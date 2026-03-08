@@ -47,9 +47,15 @@ defmodule HiveWeb.ChatLive do
       |> assign(:active_topic, active_topic)
       |> assign(:messages, messages)
       |> assign(:members, members)
+      |> assign(:agents, all_agents)
       |> assign(:agent_statuses, agent_statuses)
       |> assign(:containers, containers)
       |> assign(:page_title, "Chat")
+      |> assign(:show_create_topic, false)
+      |> assign(:show_new_dm, false)
+      |> assign(:new_topic_name, "")
+      |> assign(:new_topic_error, nil)
+      |> assign(:form_reset, 0)
 
     {:ok, socket, layout: false}
   end
@@ -70,7 +76,31 @@ defmodule HiveWeb.ChatLive do
         <div class="divider my-0"></div>
         <!-- Topics -->
         <div class="p-2 flex-1 overflow-y-auto">
-          <div class="text-xs font-bold text-base-content/50 uppercase tracking-wide px-2 mb-1">Topics</div>
+          <div class="flex items-center justify-between px-2 mb-1">
+            <span class="text-xs font-bold text-base-content/50 uppercase tracking-wide">Topics</span>
+            <button phx-click="toggle_create_topic" class="btn btn-ghost btn-xs">+</button>
+          </div>
+
+          <div :if={@show_create_topic} class="px-2 mb-2">
+            <form phx-submit="create_topic" class="flex flex-col gap-1">
+              <input
+                name="name"
+                value={@new_topic_name}
+                placeholder="topic-name"
+                class={"input input-bordered input-xs w-full #{if @new_topic_error, do: "input-error"}"}
+                phx-change="validate_topic_name"
+                autocomplete="off"
+              />
+              <div :if={@new_topic_error} class="text-error text-xs">{@new_topic_error}</div>
+              <div class="flex gap-1">
+                <button type="submit" class="btn btn-primary btn-xs flex-1">Create</button>
+                <button type="button" phx-click="toggle_create_topic" class="btn btn-ghost btn-xs">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+
           <button
             :for={topic <- @topics}
             phx-click="select_topic"
@@ -80,7 +110,25 @@ defmodule HiveWeb.ChatLive do
             # {topic.name}
           </button>
 
-          <div class="text-xs font-bold text-base-content/50 uppercase tracking-wide px-2 mb-1 mt-3">Direct Messages</div>
+          <div class="flex items-center justify-between px-2 mb-1 mt-3">
+            <span class="text-xs font-bold text-base-content/50 uppercase tracking-wide">
+              Direct Messages
+            </span>
+            <button phx-click="toggle_new_dm" class="btn btn-ghost btn-xs">+</button>
+          </div>
+
+          <div :if={@show_new_dm} class="px-2 mb-2">
+            <div :if={@agents == []} class="text-xs text-base-content/50">No agents yet.</div>
+            <button
+              :for={agent <- @agents}
+              phx-click="start_dm"
+              phx-value-name={agent.name}
+              class="btn btn-ghost btn-xs w-full justify-start"
+            >
+              {agent.name}
+            </button>
+          </div>
+
           <button
             :for={dm <- @dms}
             phx-click="select_topic"
@@ -91,8 +139,8 @@ defmodule HiveWeb.ChatLive do
           </button>
         </div>
       </div>
-
-      <!-- Center: messages -->
+      
+    <!-- Center: messages -->
       <div class="flex-1 flex flex-col">
         <div class="p-4 border-b border-base-300 font-semibold">
           {if @active_topic, do: @active_topic, else: "Select a topic"}
@@ -109,11 +157,14 @@ defmodule HiveWeb.ChatLive do
           </div>
         </div>
         <!-- Input -->
-        <form phx-submit="send_message" class="p-4 border-t border-base-300">
+        <form
+          id={"msg-form-#{@form_reset}"}
+          phx-submit="send_message"
+          class="p-4 border-t border-base-300"
+        >
           <div class="join w-full">
             <input
               name="text"
-              value=""
               placeholder="Type a message..."
               class="input input-bordered join-item flex-1"
               autocomplete="off"
@@ -122,8 +173,8 @@ defmodule HiveWeb.ChatLive do
           </div>
         </form>
       </div>
-
-      <!-- Right sidebar: members -->
+      
+    <!-- Right sidebar: members -->
       <div class="w-56 bg-base-100 border-l border-base-300 p-4 overflow-y-auto">
         <div class="text-xs font-bold text-base-content/50 uppercase tracking-wide mb-2">Members</div>
         <div :for={member <- @members} class="flex items-center gap-2 py-1">
@@ -132,11 +183,17 @@ defmodule HiveWeb.ChatLive do
         </div>
 
         <div class="divider"></div>
-        <div class="text-xs font-bold text-base-content/50 uppercase tracking-wide mb-2">Containers</div>
+        <div class="text-xs font-bold text-base-content/50 uppercase tracking-wide mb-2">
+          Containers
+        </div>
         <div :for={container <- @containers} class="text-xs mb-2">
           <div class="font-mono">{container.id}</div>
           <div class="text-base-content/50">{container.task}</div>
-          <button phx-click="kill_container" phx-value-id={container.id} class="btn btn-ghost btn-xs text-error">
+          <button
+            phx-click="kill_container"
+            phx-value-id={container.id}
+            class="btn btn-ghost btn-xs text-error"
+          >
             Kill
           </button>
         </div>
@@ -178,7 +235,6 @@ defmodule HiveWeb.ChatLive do
 
     if active_topic do
       if String.starts_with?(active_topic, "dm:") do
-        # For DMs, extract the other party and ensure the channel exists
         other = dm_other_party(active_topic, "human")
         {:ok, dm_name} = Hive.Topic.ensure_dm("human", other)
         Hive.Topic.post(dm_name, "human", text)
@@ -187,10 +243,96 @@ defmodule HiveWeb.ChatLive do
       end
     end
 
-    {:noreply, socket}
+    {:noreply, assign(socket, :form_reset, socket.assigns.form_reset + 1)}
   end
 
   def handle_event("send_message", _params, socket), do: {:noreply, socket}
+
+  def handle_event("toggle_create_topic", _params, socket) do
+    {:noreply,
+     assign(socket,
+       show_create_topic: !socket.assigns.show_create_topic,
+       new_topic_name: "",
+       new_topic_error: nil
+     )}
+  end
+
+  def handle_event("validate_topic_name", %{"name" => name}, socket) do
+    error =
+      case Hive.Validation.validate_name(name) do
+        :ok ->
+          if Hive.Persistence.name_exists?(name), do: "Name already taken", else: nil
+
+        {:error, _} ->
+          if name == "", do: nil, else: "Invalid name"
+      end
+
+    {:noreply, assign(socket, new_topic_name: name, new_topic_error: error)}
+  end
+
+  def handle_event("create_topic", %{"name" => name}, socket) do
+    name = String.trim(name)
+
+    case Hive.Validation.validate_name(name) do
+      {:error, _} ->
+        {:noreply, assign(socket, new_topic_error: "Invalid name")}
+
+      :ok ->
+        case Hive.Persistence.create_topic(name, "", "topic", "human") do
+          :ok ->
+            DynamicSupervisor.start_child(
+              Hive.TopicSup,
+              {Hive.Topic, name: name, description: "", type: :topic, created_by: "human"}
+            )
+
+            all_topics = load_topics()
+            topics = Enum.filter(all_topics, fn t -> t.type != "dm" end)
+
+            socket =
+              socket
+              |> assign(:topics, topics)
+              |> assign(:show_create_topic, false)
+              |> assign(:new_topic_name, "")
+              |> assign(:new_topic_error, nil)
+
+            {:noreply, socket}
+
+          {:error, :name_taken} ->
+            {:noreply, assign(socket, new_topic_error: "Name already taken")}
+
+          {:error, reason} ->
+            {:noreply, assign(socket, new_topic_error: to_string(reason))}
+        end
+    end
+  end
+
+  def handle_event("toggle_new_dm", _params, socket) do
+    {:noreply, assign(socket, show_new_dm: !socket.assigns.show_new_dm)}
+  end
+
+  def handle_event("start_dm", %{"name" => agent_name}, socket) do
+    {:ok, dm_name} = Hive.Topic.ensure_dm("human", agent_name)
+
+    # Reload DMs and switch to the new one
+    all_topics = load_topics()
+    dms = Enum.filter(all_topics, fn t -> t.type == "dm" end)
+
+    old_topic = socket.assigns.active_topic
+    if old_topic, do: Phoenix.PubSub.unsubscribe(Hive.PubSub, "topic:#{old_topic}")
+    Phoenix.PubSub.subscribe(Hive.PubSub, "topic:#{dm_name}")
+
+    {messages, members} = load_topic_data(dm_name)
+
+    socket =
+      socket
+      |> assign(:dms, dms)
+      |> assign(:active_topic, dm_name)
+      |> assign(:messages, messages)
+      |> assign(:members, members)
+      |> assign(:show_new_dm, false)
+
+    {:noreply, socket}
+  end
 
   def handle_event("kill_container", %{"id" => id}, socket) do
     Hive.Container.kill(id)

@@ -42,3 +42,6 @@ npm-debug.log
 /priv/agents/
 /priv/shared/vault/
 
+# Environment variables
+.env
+

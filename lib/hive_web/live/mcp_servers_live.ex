@@ -27,7 +27,9 @@ defmodule HiveWeb.McpServersLive do
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <!-- Left: Server list -->
         <div>
-          <button phx-click="new_server" class="btn btn-primary btn-sm w-full mb-4">+ Install MCP Server</button>
+          <button phx-click="new_server" class="btn btn-primary btn-sm w-full mb-4">
+            + Install MCP Server
+          </button>
 
           <div :if={@mcp_servers == []} class="text-sm text-base-content/50 text-center py-4">
             No MCP servers installed yet.
@@ -41,7 +43,9 @@ defmodule HiveWeb.McpServersLive do
           >
             <div class="card-body p-3">
               <div class="font-semibold">{server.name}</div>
-              <div :if={server.description} class="text-xs text-base-content/50 line-clamp-2">{server.description}</div>
+              <div :if={server.description} class="text-xs text-base-content/50 line-clamp-2">
+                {server.description}
+              </div>
               <div class="text-xs font-mono text-base-content/40 mt-1">
                 {server.command} {format_args_preview(server.args)}
               </div>
@@ -49,13 +53,15 @@ defmodule HiveWeb.McpServersLive do
                 <span
                   :for={agent <- assigned_agents(server.name)}
                   class="badge badge-sm badge-outline"
-                >{agent}</span>
+                >
+                  {agent}
+                </span>
               </div>
             </div>
           </div>
         </div>
-
-        <!-- Right: Editor form -->
+        
+    <!-- Right: Editor form -->
         <div>
           <div class="card bg-base-100 shadow-sm">
             <div class="card-body">
@@ -114,7 +120,9 @@ defmodule HiveWeb.McpServersLive do
                     placeholder={~s(e.g. ["-y", "mcp-obsidian", "/path"])}
                   />
                   <div :if={@args_error} class="text-error text-sm mt-1">{@args_error}</div>
-                  <div :if={!@args_error} class="text-xs text-base-content/50 mt-1">JSON array of strings</div>
+                  <div :if={!@args_error} class="text-xs text-base-content/50 mt-1">
+                    JSON array of strings
+                  </div>
                 </div>
 
                 <div class="form-control mb-4">
@@ -128,7 +136,9 @@ defmodule HiveWeb.McpServersLive do
                     placeholder={~s(e.g. {"API_KEY": "sk-..."})}
                   />
                   <div :if={@env_error} class="text-error text-sm mt-1">{@env_error}</div>
-                  <div :if={!@env_error} class="text-xs text-base-content/50 mt-1">JSON object (optional)</div>
+                  <div :if={!@env_error} class="text-xs text-base-content/50 mt-1">
+                    JSON object (optional)
+                  </div>
                 </div>
 
                 <div class="flex gap-2 mt-6">

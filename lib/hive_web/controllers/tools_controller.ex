@@ -125,7 +125,7 @@ defmodule HiveWeb.ToolsController do
         # Format recent messages for the agent
         context =
           Enum.map_join(recent, "\n", fn msg ->
-            "  [#{msg.sender}] #{msg.body}"
+            "  [#{format_history_timestamp(msg.ts)}] #{msg.sender} (#{sender_kind(msg.sender)}): #{msg.body}"
           end)
 
         {:ok, "Joined topic '#{topic}'. Recent messages:\n#{context}"}
@@ -149,7 +149,7 @@ defmodule HiveWeb.ToolsController do
       {:ok, messages} ->
         formatted =
           Enum.map_join(messages, "\n", fn msg ->
-            "[#{msg.ts}] #{msg.sender}: #{msg.body}"
+            "[#{format_history_timestamp(msg.ts)}] #{msg.sender} (#{sender_kind(msg.sender)}): #{msg.body}"
           end)
 
         {:ok, formatted}
@@ -259,4 +259,11 @@ defmodule HiveWeb.ToolsController do
   defp execute_tool(_agent, tool, _params) do
     {:error, "Unknown tool: #{tool}"}
   end
+
+  defp sender_kind("human"), do: "human"
+  defp sender_kind(_sender), do: "agent"
+
+  defp format_history_timestamp(%DateTime{} = timestamp), do: DateTime.to_iso8601(timestamp)
+  defp format_history_timestamp(timestamp) when is_binary(timestamp), do: timestamp
+  defp format_history_timestamp(_timestamp), do: "unknown"
 end

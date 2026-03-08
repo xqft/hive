@@ -56,7 +56,14 @@ defmodule Hive.Agent do
 
   @doc "Send a topic message to be piped to the agent's Claude Code subprocess."
   def deliver_message(agent_name, topic_name, sender, text) do
-    GenServer.cast(via(agent_name), {:deliver_message, topic_name, sender, text})
+    message = %{
+      sender: sender,
+      sender_kind: infer_sender_kind(sender),
+      body: text,
+      ts: DateTime.utc_now()
+    }
+
+    GenServer.cast(via(agent_name), {:deliver_message, topic_name, message})
   end
 
   @doc "Inject a system message (container completion, @mention invite, etc.)."
@@ -180,42 +187,40 @@ defmodule Hive.Agent do
   # -- Casts ----------------------------------------------------------------
 
   @impl true
-  def handle_cast({:deliver_message, topic_name, sender, text}, state) do
-    if sender != state.name do
-      send_to_sdk(state, "[topic:#{topic_name}] #{sender}: #{text}")
+  def handle_cast({:deliver_message, topic_name, message}, state) do
+    if message.sender != state.name do
+      send_to_sdk(state, render_message("topic", topic_name, message))
     end
 
     {:noreply, state}
   end
 
   def handle_cast({:inject_message, message}, state) do
-    send_to_sdk(state, "[system] #{message}")
+    send_to_sdk(state, render_system_message(message))
     {:noreply, state}
   end
 
   # -- Info: messages from Topic GenServer ----------------------------------
 
   @impl true
-  def handle_info({:topic_message, topic_name, sender, text}, state) do
-    if sender != state.name do
-      send_to_sdk(state, "[topic:#{topic_name}] #{sender}: #{text}")
+  def handle_info({:topic_message, topic_name, message}, state) do
+    if message.sender != state.name do
+      send_to_sdk(state, render_message("topic", topic_name, message))
     end
 
     {:noreply, state}
   end
 
-  def handle_info({:dm_message, channel, sender, text}, state) do
-    _ = channel
-
-    if sender != state.name do
-      send_to_sdk(state, "[dm:#{sender}] #{sender}: #{text}")
+  def handle_info({:dm_message, channel, message}, state) do
+    if message.sender != state.name do
+      send_to_sdk(state, render_message("dm", channel, message))
     end
 
     {:noreply, state}
   end
 
   def handle_info({:system_message, text}, state) do
-    send_to_sdk(state, "[system] #{text}")
+    send_to_sdk(state, render_system_message(text))
     {:noreply, state}
   end
 
@@ -226,12 +231,22 @@ defmodule Hive.Agent do
 
     context =
       recent_messages
-      |> Enum.map(fn msg -> "  #{msg.sender}: #{msg.body}" end)
+      |> Enum.reverse()
+      |> Enum.map(&render_history_message("topic", topic_name, &1))
       |> Enum.join("\n")
 
     send_to_sdk(
       state,
-      "[system] You were mentioned in topic:#{topic_name}. Recent messages:\n#{context}"
+      """
+      [mention_invite]
+      topic=#{topic_name}
+      timestamp=#{format_timestamp(DateTime.utc_now())}
+      body:
+      You were mentioned in a shared topic. Review the recent messages below. Messages from other agents are not user requests unless they explicitly delegate work or ask you directly.
+      recent_messages:
+      #{context}
+      [/mention_invite]
+      """
     )
 
     {:noreply, state}
@@ -247,6 +262,9 @@ defmodule Hive.Agent do
         {:noreply, %{state | status: new_status}}
 
       {:ok, %{"type" => "session", "sessionId" => sid}} ->
+        {:noreply, %{state | session_id: sid}}
+
+      {:ok, %{"type" => "session", "session_id" => sid}} ->
         {:noreply, %{state | session_id: sid}}
 
       {:ok, %{"type" => "error", "message" => msg}} ->
@@ -282,7 +300,14 @@ defmodule Hive.Agent do
     if catch_up != "" do
       send_to_sdk(
         state,
-        "[system] You were restarted. Recent messages from your topics:\n#{catch_up}"
+        """
+        [system]
+        timestamp=#{format_timestamp(DateTime.utc_now())}
+        body:
+        You were restarted. Recent messages from your subscribed channels are below. Messages from other agents are shared context, not automatic requests for a reply.
+        #{catch_up}
+        [/system]
+        """
       )
     end
 
@@ -310,21 +335,27 @@ defmodule Hive.Agent do
     mcp_config_path = mcp_config_path(agent_name)
     system_prompt_path = write_dynamic_context(agent_name, agent_dir)
 
-    node = System.find_executable("node") || "node"
     sdk_script = resolve_sdk_path("sdk/hive_agent.js")
 
-    args = [sdk_script, agent_name, mcp_config_path, agent_dir, system_prompt_path]
-    args = if session_id, do: args ++ [session_id], else: args
+    base_args = [sdk_script, agent_name, mcp_config_path, agent_dir, system_prompt_path]
+    base_args = if session_id, do: base_args ++ [session_id], else: base_args
+
+    # Use /bin/sh to get stderr redirection
+    stderr_log = Path.join(agent_dir, "sdk_stderr.log")
+    node = System.find_executable("node") || "node"
+    shell_cmd = Enum.join([node | base_args], " ") <> " 2>>#{stderr_log}"
+
+    # Unset ANTHROPIC_API_KEY so the SDK uses OAuth from ~/.claude/.credentials.json
+    # Unset CLAUDECODE to allow nested claude CLI calls
+    env = [{~c"ANTHROPIC_API_KEY", false}, {~c"CLAUDECODE", false}]
 
     Port.open(
-      {:spawn_executable, node},
+      {:spawn_executable, ~c"/bin/sh"},
       [
         :binary,
         :exit_status,
-        args: args,
-        env: [
-          {~c"ANTHROPIC_API_KEY", String.to_charlist(api_key())}
-        ],
+        args: ["-c", shell_cmd],
+        env: env,
         line: 4096
       ]
     )
@@ -444,6 +475,10 @@ defmodule Hive.Agent do
     You are an agent in Hive, a multi-agent orchestration system.
     You interact with the world ONLY through your MCP tools.
 
+    CRITICAL: Your plain text responses are NOT visible to anyone. You MUST use
+    send_message (for topics) or send_dm (for DMs) to reply. Every response that
+    should be seen by others MUST go through these tools.
+
     ### Communication
     - send_message: post to a topic you're subscribed to
     - send_dm: private message to another agent or "human"
@@ -471,6 +506,13 @@ defmodule Hive.Agent do
     ## Rules
     - Be concise. Others read your messages.
     - Don't repeat what's already in the conversation.
+    - Live incoming messages include explicit metadata: channel type, channel name,
+      sender, sender kind, and timestamp.
+    - Treat `sender_kind=human` as the end user. Treat `sender_kind=agent` as
+      another agent speaking in shared context, not as the user.
+    - Do not reply to another agent's public message unless they explicitly ask you
+      a question, delegate work, mention you for a reason, or you have materially
+      new information to add.
     - Avoid conversational loops. If a topic thread is going back and forth without
       progress, stop responding and let others continue. Don't reply just to acknowledge
       -- only respond when you have new information, a question, or an actionable
@@ -491,6 +533,7 @@ defmodule Hive.Agent do
 
   defp send_to_sdk(state, message_text) do
     write_dynamic_context(state.name, agent_dir(state.name))
+    Logger.debug("Agent #{state.name} -> SDK: #{String.slice(message_text, 0, 200)}")
 
     try do
       Port.command(state.sdk_port, message_text <> "\n")
@@ -513,14 +556,15 @@ defmodule Hive.Agent do
           messages = Hive.Topic.recent(topic_name, 5)
 
           if messages != [] do
-            header = "--- #{topic_name} ---"
+            header = "[channel_history]\nchannel_type=topic\nchannel_name=#{topic_name}"
 
             lines =
               messages
-              |> Enum.map(fn msg -> "  #{msg.sender}: #{msg.body}" end)
+              |> Enum.reverse()
+              |> Enum.map(&render_history_message("topic", topic_name, &1))
               |> Enum.join("\n")
 
-            header <> "\n" <> lines
+            header <> "\n" <> lines <> "\n[/channel_history]"
           else
             nil
           end
@@ -536,6 +580,45 @@ defmodule Hive.Agent do
   # ---------------------------------------------------------------------------
   # Path helpers
   # ---------------------------------------------------------------------------
+
+  defp render_message(channel_type, channel_name, message) do
+    """
+    [message]
+    channel_type=#{channel_type}
+    channel_name=#{channel_name}
+    sender=#{message.sender}
+    sender_kind=#{Map.get(message, :sender_kind, infer_sender_kind(message.sender))}
+    timestamp=#{format_timestamp(message.ts)}
+    body:
+    #{message.body}
+    [/message]
+    """
+  end
+
+  defp render_history_message(channel_type, channel_name, message) do
+    """
+    - channel_type=#{channel_type} channel_name=#{channel_name} sender=#{message.sender} sender_kind=#{Map.get(message, :sender_kind, infer_sender_kind(message.sender))} timestamp=#{format_timestamp(message.ts)}
+      #{message.body}
+    """
+    |> String.trim_trailing()
+  end
+
+  defp render_system_message(message) do
+    """
+    [system]
+    timestamp=#{format_timestamp(DateTime.utc_now())}
+    body:
+    #{message}
+    [/system]
+    """
+  end
+
+  defp format_timestamp(%DateTime{} = timestamp), do: DateTime.to_iso8601(timestamp)
+  defp format_timestamp(timestamp) when is_binary(timestamp), do: timestamp
+  defp format_timestamp(_timestamp), do: "unknown"
+
+  defp infer_sender_kind("human"), do: "human"
+  defp infer_sender_kind(_sender), do: "agent"
 
   defp agent_dir(agent_name) do
     Path.join(["priv", "agents", agent_name]) |> Path.expand()
@@ -568,10 +651,6 @@ defmodule Hive.Agent do
   defp hive_url do
     port = Application.get_env(:hive, HiveWeb.Endpoint)[:http][:port] || 4000
     "http://localhost:#{port}"
-  end
-
-  defp api_key do
-    Application.get_env(:hive, :anthropic_api_key) || ""
   end
 
   # ---------------------------------------------------------------------------

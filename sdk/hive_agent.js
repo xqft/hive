@@ -52,7 +52,15 @@ async function processNext() {
       }
     }
 
-    // Read dynamic context
+    // Read CLAUDE.md (agent identity/personality)
+    let claudeMd = "";
+    try {
+      claudeMd = fs.readFileSync(`${agentDir}/CLAUDE.md`, "utf8");
+    } catch (e) {
+      // CLAUDE.md should always exist, but fallback gracefully
+    }
+
+    // Read dynamic context (other agents, topics)
     let dynamicContext = "";
     try {
       dynamicContext = fs.readFileSync(systemPromptPath, "utf8");
@@ -60,26 +68,61 @@ async function processNext() {
       // File might not exist yet on first run
     }
 
+    // Combine: CLAUDE.md identity + dynamic context
+    const systemPrompt = claudeMd + "\n\n" + dynamicContext;
+
     const options = {
-      systemPrompt: dynamicContext,
+      model: "claude-opus-4-6",
+      effort: "high",
+      systemPrompt,
       allowedTools: ["Skill", ...hiveTools, ...extraToolPatterns],
-      settingSources: ["project"],
-      mcpServers: Object.entries(mcpConfig.mcpServers).map(([name, cfg]) => ({
-        name,
-        command: cfg.command,
-        args: cfg.args,
-        ...(cfg.env ? { env: cfg.env } : {})
-      })),
+      settingSources: [],  // Don't load filesystem settings, we provide everything
+      mcpServers: Object.fromEntries(
+        Object.entries(mcpConfig.mcpServers).map(([name, cfg]) => [
+          name,
+          {
+            command: cfg.command,
+            args: cfg.args,
+            ...(cfg.env ? { env: cfg.env } : {})
+          }
+        ])
+      ),
       cwd: agentDir,
-      ...(sessionId ? { resume: true, sessionId } : {})
+      ...(sessionId ? { resume: sessionId } : {})
     };
 
+    process.stderr.write(
+      `[hive-sdk] starting turn agent=${agentName} resume_session=${sessionId || "new"}\n`
+    );
+
     for await (const event of query({ prompt: batch, options })) {
-      if (event.type === "result" && event.sessionId) {
-        sessionId = event.sessionId;
+      let extra = "";
+      if (event.type === "system") {
+        extra = ` mcp=${JSON.stringify(event.mcp_servers)} tools=${(event.tools||[]).filter(t=>t.startsWith("mcp")).join(",")}`;
+      } else if (event.type === "result") {
+        extra = ` is_error=${event.is_error} result=${JSON.stringify((event.result || "").slice(0, 500))}`;
+      } else if (event.type === "rate_limit_event") {
+        extra = ` ${JSON.stringify(event)}`;
+      }
+      process.stderr.write(`[hive-sdk] event: ${event.type} ${event.subtype || ""}${extra}\n`);
+      const nextSessionId = event.sessionId || event.session_id;
+
+      if (nextSessionId && nextSessionId !== sessionId) {
+        sessionId = nextSessionId;
+        process.stderr.write(
+          `[hive-sdk] session updated agent=${agentName} session=${sessionId}\n`
+        );
         process.stdout.write(
           JSON.stringify({ type: "session", sessionId }) + "\n"
         );
+      }
+
+      if (event.type === "result") {
+        if (event.is_error) {
+          process.stdout.write(
+            JSON.stringify({ type: "error", message: event.result || "unknown SDK error" }) + "\n"
+          );
+        }
       }
     }
   } catch (err) {

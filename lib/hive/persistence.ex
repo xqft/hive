@@ -85,27 +85,57 @@ defmodule Hive.Persistence do
 
   def get_messages(topic, limit \\ 50, server \\ __MODULE__) do
     reader = get_reader(server)
-    query_all(reader, "SELECT sender, body, ts FROM messages WHERE topic = ?1 ORDER BY ts ASC LIMIT ?2", [topic, limit], [:sender, :body, :ts])
+
+    query_all(
+      reader,
+      "SELECT sender, body, ts FROM messages WHERE topic = ?1 ORDER BY ts ASC LIMIT ?2",
+      [topic, limit],
+      [:sender, :body, :ts]
+    )
   end
 
   def get_agents(server \\ __MODULE__) do
     reader = get_reader(server)
-    query_all(reader, "SELECT name, description, personality, config FROM agents", [], [:name, :description, :personality, :config])
+
+    query_all(reader, "SELECT name, description, personality, config FROM agents", [], [
+      :name,
+      :description,
+      :personality,
+      :config
+    ])
   end
 
   def get_agent(name, server \\ __MODULE__) do
     reader = get_reader(server)
-    query_one(reader, "SELECT name, description, personality, config FROM agents WHERE name = ?1", [name], [:name, :description, :personality, :config])
+
+    query_one(
+      reader,
+      "SELECT name, description, personality, config FROM agents WHERE name = ?1",
+      [name],
+      [:name, :description, :personality, :config]
+    )
   end
 
   def get_topics(server \\ __MODULE__) do
     reader = get_reader(server)
-    query_all(reader, "SELECT name, description, type, created_by FROM topics", [], [:name, :description, :type, :created_by])
+
+    query_all(reader, "SELECT name, description, type, created_by FROM topics", [], [
+      :name,
+      :description,
+      :type,
+      :created_by
+    ])
   end
 
   def get_topic(name, server \\ __MODULE__) do
     reader = get_reader(server)
-    query_one(reader, "SELECT name, description, type, created_by FROM topics WHERE name = ?1", [name], [:name, :description, :type, :created_by])
+
+    query_one(
+      reader,
+      "SELECT name, description, type, created_by FROM topics WHERE name = ?1",
+      [name],
+      [:name, :description, :type, :created_by]
+    )
   end
 
   def get_subscriptions(agent, server \\ __MODULE__) do
@@ -128,7 +158,14 @@ defmodule Hive.Persistence do
 
   def get_mcp_servers(server \\ __MODULE__) do
     reader = get_reader(server)
-    query_all(reader, "SELECT name, description, command, args, env FROM mcp_servers", [], [:name, :description, :command, :args, :env])
+
+    query_all(reader, "SELECT name, description, command, args, env FROM mcp_servers", [], [
+      :name,
+      :description,
+      :command,
+      :args,
+      :env
+    ])
   end
 
   def get_agent_mcp_servers(agent, server \\ __MODULE__) do
@@ -218,11 +255,15 @@ defmodule Hive.Persistence do
         if namespace_taken?(state.writer, name) do
           {:reply, {:error, :name_taken}, state}
         else
-          case exec_write(state.writer, "INSERT INTO agents (name, description, personality) VALUES (?1, ?2, ?3)", [
-                 name,
-                 description,
-                 personality
-               ]) do
+          case exec_write(
+                 state.writer,
+                 "INSERT INTO agents (name, description, personality) VALUES (?1, ?2, ?3)",
+                 [
+                   name,
+                   description,
+                   personality
+                 ]
+               ) do
             :ok -> {:reply, :ok, state}
             {:error, _} = err -> {:reply, err, state}
           end
@@ -300,7 +341,21 @@ defmodule Hive.Persistence do
 
   def handle_call({:subscribe, topic, agent}, _from, state) do
     result =
-      exec_write(state.writer, "INSERT OR IGNORE INTO subscriptions (topic, agent) VALUES (?1, ?2)", [
+      exec_write(
+        state.writer,
+        "INSERT OR IGNORE INTO subscriptions (topic, agent) VALUES (?1, ?2)",
+        [
+          topic,
+          agent
+        ]
+      )
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:unsubscribe, topic, agent}, _from, state) do
+    result =
+      exec_write(state.writer, "DELETE FROM subscriptions WHERE topic = ?1 AND agent = ?2", [
         topic,
         agent
       ])
@@ -308,13 +363,13 @@ defmodule Hive.Persistence do
     {:reply, result, state}
   end
 
-  def handle_call({:unsubscribe, topic, agent}, _from, state) do
-    result = exec_write(state.writer, "DELETE FROM subscriptions WHERE topic = ?1 AND agent = ?2", [topic, agent])
-    {:reply, result, state}
-  end
-
   def handle_call({:update_agent_personality, agent, content}, _from, state) do
-    result = exec_write(state.writer, "UPDATE agents SET personality = ?1 WHERE name = ?2", [content, agent])
+    result =
+      exec_write(state.writer, "UPDATE agents SET personality = ?1 WHERE name = ?2", [
+        content,
+        agent
+      ])
+
     {:reply, result, state}
   end
 
@@ -395,10 +450,14 @@ defmodule Hive.Persistence do
 
   def handle_call({:unassign_mcp_server, agent, mcp_server}, _from, state) do
     result =
-      exec_write(state.writer, "DELETE FROM agent_mcp_servers WHERE agent = ?1 AND mcp_server = ?2", [
-        agent,
-        mcp_server
-      ])
+      exec_write(
+        state.writer,
+        "DELETE FROM agent_mcp_servers WHERE agent = ?1 AND mcp_server = ?2",
+        [
+          agent,
+          mcp_server
+        ]
+      )
 
     {:reply, result, state}
   end

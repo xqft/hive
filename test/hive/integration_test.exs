@@ -114,7 +114,13 @@ defmodule Hive.IntegrationTest do
   end
 
   defp start_topic(name, opts \\ []) do
-    defaults = [name: name, description: "integration test topic", type: :topic, created_by: "test"]
+    defaults = [
+      name: name,
+      description: "integration test topic",
+      type: :topic,
+      created_by: "test"
+    ]
+
     start_supervised!({Topic, Keyword.merge(defaults, opts)})
   end
 
@@ -160,7 +166,8 @@ defmodule Hive.IntegrationTest do
       assert buffered.body == "hello world"
 
       # 3) Verify PubSub broadcast occurred
-      assert_receive {:message, %{topic: ^topic, sender: ^agent, body: "hello world", ts: %DateTime{}}}
+      assert_receive {:message,
+                      %{topic: ^topic, sender: ^agent, body: "hello world", ts: %DateTime{}}}
     end
 
     test "multiple messages maintain order in persistence and buffer", %{p: p} do
@@ -363,7 +370,11 @@ defmodule Hive.IntegrationTest do
       srv = topic_name(p, "obsidian")
 
       :ok = Persistence.create_agent(agent, "d", "p")
-      :ok = Persistence.create_mcp_server(srv, "Obsidian MCP", "npx", ["obsidian-mcp"], %{"KEY" => "val"})
+
+      :ok =
+        Persistence.create_mcp_server(srv, "Obsidian MCP", "npx", ["obsidian-mcp"], %{
+          "KEY" => "val"
+        })
 
       # Assign with allowed_tools
       :ok = Persistence.assign_mcp_server(agent, srv, ["read", "write"])
@@ -520,7 +531,9 @@ defmodule Hive.IntegrationTest do
       # Empty
       assert {:error, :invalid_name} = Persistence.create_agent("", "d", "p")
       # Too long (32 chars)
-      assert {:error, :invalid_name} = Persistence.create_agent(String.duplicate("a", 32), "d", "p")
+      assert {:error, :invalid_name} =
+               Persistence.create_agent(String.duplicate("a", 32), "d", "p")
+
       # Starts with underscore
       assert {:error, :invalid_name} = Persistence.create_agent("_bad", "d", "p")
       # Starts with hyphen
@@ -661,11 +674,15 @@ defmodule Hive.IntegrationTest do
 
       # Bob should receive the message (this test process is registered as both,
       # but the Topic only delivers to non-sender subscribers)
-      assert_receive {:topic_message, ^topic, ^a, "hello"}
+      assert_receive {:topic_message, ^topic, message}
+      assert message.sender == a
+      assert message.sender_kind == "agent"
+      assert message.body == "hello"
+      assert %DateTime{} = message.ts
 
       # We should NOT receive a second :topic_message for the same post
       # because alice is the sender
-      refute_receive {:topic_message, ^topic, ^a, "hello"}, 100
+      refute_receive {:topic_message, ^topic, _}, 100
     end
   end
 

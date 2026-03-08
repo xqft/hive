@@ -503,10 +503,7 @@ defmodule HiveWeb.ToolsControllerTest do
       DynamicSupervisor.start_child(
         Hive.TopicSup,
         {Hive.Topic,
-         name: "dup-topic-test",
-         description: "first",
-         type: :topic,
-         created_by: "test-agent"}
+         name: "dup-topic-test", description: "first", type: :topic, created_by: "test-agent"}
       )
 
       body =

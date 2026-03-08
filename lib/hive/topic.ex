@@ -125,7 +125,7 @@ defmodule Hive.Topic do
 
     messages =
       case persist(fn -> Hive.Persistence.get_messages(name, @max_buffer) end) do
-        {:ok, list} when is_list(list) -> list
+        {:ok, list} when is_list(list) -> Enum.map(list, &with_sender_kind/1)
         _ -> []
       end
 
@@ -144,7 +144,7 @@ defmodule Hive.Topic do
   @impl true
   def handle_call({:post, sender, text}, _from, state) do
     ts = DateTime.utc_now()
-    msg = %{sender: sender, body: text, ts: ts}
+    msg = %{sender: sender, sender_kind: sender_kind(sender), body: text, ts: ts}
 
     # Persist
     persist(fn -> Hive.Persistence.write_message(state.name, sender, text) end)
@@ -160,9 +160,11 @@ defmodule Hive.Topic do
     )
 
     # Deliver to subscriber Agent GenServers (skip self)
+    event_name = if state.type == :dm, do: :dm_message, else: :topic_message
+
     for subscriber <- state.subscribers, subscriber != sender do
       case Registry.lookup(Hive.AgentRegistry, subscriber) do
-        [{pid, _}] -> send(pid, {:topic_message, state.name, sender, text})
+        [{pid, _}] -> send(pid, {event_name, state.name, msg})
         [] -> :ok
       end
     end
@@ -266,5 +268,12 @@ defmodule Hive.Topic do
         acc
       end
     end)
+  end
+
+  defp sender_kind("human"), do: "human"
+  defp sender_kind(_sender), do: "agent"
+
+  defp with_sender_kind(msg) do
+    Map.put_new(msg, :sender_kind, sender_kind(msg.sender))
   end
 end

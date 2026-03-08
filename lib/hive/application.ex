@@ -71,9 +71,7 @@ defmodule Hive.Application do
       DynamicSupervisor.start_child(
         Hive.AgentSup,
         {Hive.Agent,
-         name: agent.name,
-         description: agent.description,
-         personality: agent.personality}
+         name: agent.name, description: agent.description, personality: agent.personality}
       )
     end
   end

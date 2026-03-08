@@ -30,7 +30,9 @@ defmodule HiveWeb.AgentEditorLive do
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Left: Agent list -->
         <div class="col-span-1">
-          <button phx-click="new_agent" class="btn btn-primary btn-sm w-full mb-4">+ New Agent</button>
+          <button phx-click="new_agent" class="btn btn-primary btn-sm w-full mb-4">
+            + New Agent
+          </button>
 
           <div :if={@agents == []} class="text-sm text-base-content/50 text-center py-4">
             No agents yet. Create one to get started.
@@ -51,8 +53,8 @@ defmodule HiveWeb.AgentEditorLive do
             </div>
           </div>
         </div>
-
-        <!-- Right: Editor form -->
+        
+    <!-- Right: Editor form -->
         <div class="col-span-1 lg:col-span-2">
           <div class="card bg-base-100 shadow-sm">
             <div class="card-body">
@@ -73,7 +75,10 @@ defmodule HiveWeb.AgentEditorLive do
                     placeholder="e.g. researcher, coder-01"
                   />
                   <div :if={@name_error} class="text-error text-sm mt-1">{@name_error}</div>
-                  <div :if={!@editing_existing && !@name_error} class="text-xs text-base-content/50 mt-1">
+                  <div
+                    :if={!@editing_existing && !@name_error}
+                    class="text-xs text-base-content/50 mt-1"
+                  >
                     Alphanumeric, hyphens, underscores. 1-31 characters.
                   </div>
                 </div>
@@ -93,6 +98,15 @@ defmodule HiveWeb.AgentEditorLive do
                 <div class="form-control mb-4">
                   <label class="label">
                     <span class="label-text font-medium">Personality / CLAUDE.md</span>
+                    <button
+                      type="button"
+                      phx-click="generate_personality"
+                      class="btn btn-xs btn-outline btn-secondary"
+                      disabled={@generating}
+                    >
+                      <span :if={@generating} class="loading loading-spinner loading-xs"></span>
+                      {if @generating, do: "Generating...", else: "Generate with AI"}
+                    </button>
                   </label>
                   <textarea
                     name="personality"
@@ -100,8 +114,8 @@ defmodule HiveWeb.AgentEditorLive do
                     placeholder="Instructions, personality, objectives..."
                   >{@form_personality}</textarea>
                 </div>
-
-                <!-- MCP Server assignment -->
+                
+    <!-- MCP Server assignment -->
                 <div class="form-control mb-4">
                   <label class="label">
                     <span class="label-text font-medium">MCP Servers</span>
@@ -123,7 +137,9 @@ defmodule HiveWeb.AgentEditorLive do
                     </label>
                     <div :if={mcp.name in @assigned_mcps} class="mt-2 ml-7">
                       <label class="label">
-                        <span class="label-text text-xs">Allowed tools (comma-separated, blank = all)</span>
+                        <span class="label-text text-xs">
+                          Allowed tools (comma-separated, blank = all)
+                        </span>
                       </label>
                       <input
                         name={"mcp_tools[#{mcp.name}]"}
@@ -139,7 +155,13 @@ defmodule HiveWeb.AgentEditorLive do
                   <button type="submit" class="btn btn-primary">
                     {if @editing_existing, do: "Update", else: "Create"}
                   </button>
-                  <button :if={@editing_existing} type="button" phx-click="delete_agent" class="btn btn-error btn-outline" data-confirm="Are you sure you want to delete this agent?">
+                  <button
+                    :if={@editing_existing}
+                    type="button"
+                    phx-click="delete_agent"
+                    class="btn btn-error btn-outline"
+                    data-confirm="Are you sure you want to delete this agent?"
+                  >
                     Delete
                   </button>
                   <button type="button" phx-click="new_agent" class="btn btn-ghost">
@@ -228,6 +250,24 @@ defmodule HiveWeb.AgentEditorLive do
     end
   end
 
+  def handle_event("generate_personality", _params, socket) do
+    name = String.trim(socket.assigns.form_name || "")
+    description = String.trim(socket.assigns.form_description || "")
+
+    Logger.debug("generate_personality: name=#{inspect(name)} desc=#{inspect(description)}")
+
+    if name == "" and description == "" do
+      {:noreply, put_flash(socket, :error, "Enter a name or description first")}
+    else
+      task =
+        Task.async(fn ->
+          generate_personality(name, description)
+        end)
+
+      {:noreply, assign(socket, generating: true, generate_task: task)}
+    end
+  end
+
   def handle_event("delete_agent", _params, socket) do
     name = socket.assigns.selected_agent
 
@@ -249,6 +289,34 @@ defmodule HiveWeb.AgentEditorLive do
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Failed to delete agent: #{inspect(reason)}")}
     end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Async task result
+  # ---------------------------------------------------------------------------
+
+  @impl true
+  def handle_info({ref, result}, socket) when is_reference(ref) do
+    Process.demonitor(ref, [:flush])
+    Logger.debug("generate task result: #{inspect(result, limit: 200)}")
+
+    socket =
+      socket
+      |> assign(:generating, false)
+      |> assign(:generate_task, nil)
+
+    case result do
+      {:ok, personality} ->
+        {:noreply, assign(socket, :form_personality, personality)}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Generation failed: #{reason}")}
+    end
+  end
+
+  def handle_info(msg, socket) do
+    Logger.debug("unhandled info: #{inspect(msg, limit: 200)}")
+    {:noreply, socket}
   end
 
   # ---------------------------------------------------------------------------
@@ -452,6 +520,38 @@ defmodule HiveWeb.AgentEditorLive do
   # Assign helpers
   # ---------------------------------------------------------------------------
 
+  # ---------------------------------------------------------------------------
+  # AI personality generation
+  # ---------------------------------------------------------------------------
+
+  defp generate_personality(name, description) do
+    prompt = """
+    Generate a CLAUDE.md personality file for a Hive agent with the following details:
+
+    Name: #{name}
+    Description: #{description}
+
+    The agent operates in a multi-agent orchestration system called Hive where agents communicate via topics and DMs, can execute code in Docker containers, and extend capabilities via MCP servers.
+
+    Write a concise, focused personality that includes:
+    - The agent's role and expertise
+    - How it should behave and communicate
+    - Any specific guidelines or constraints
+
+    Output ONLY the markdown content for the CLAUDE.md file, nothing else.
+    """
+
+    # Pass prompt via env var to avoid shell escaping issues.
+    # Redirect stdin from /dev/null so claude doesn't hang waiting for input.
+    case System.cmd("bash", ["-c", ~s(claude -p "$HIVE_PROMPT" --output-format text < /dev/null)],
+           stderr_to_stdout: true,
+           env: [{"HIVE_PROMPT", prompt}, {"CLAUDECODE", nil}, {"ANTHROPIC_API_KEY", nil}]
+         ) do
+      {output, 0} -> {:ok, String.trim(output)}
+      {output, code} -> {:error, "claude exited #{code}: #{String.slice(output, 0, 200)}"}
+    end
+  end
+
   defp assign_new_form(socket) do
     socket
     |> assign(:selected_agent, nil)
@@ -462,6 +562,8 @@ defmodule HiveWeb.AgentEditorLive do
     |> assign(:assigned_mcps, MapSet.new())
     |> assign(:assigned_mcp_tools, %{})
     |> assign(:name_error, nil)
+    |> assign(:generating, false)
+    |> assign(:generate_task, nil)
   end
 
   defp status_dot(agent_name) do

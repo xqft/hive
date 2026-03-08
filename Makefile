@@ -1,3 +1,6 @@
+-include .env
+export
+
 .PHONY: setup deps compile test server iex docker-build clean
 
 # Full project setup

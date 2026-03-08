@@ -38,7 +38,7 @@ defmodule Hive.PersistenceTest do
       assert {:error, :invalid_name} = Persistence.create_agent("_bad", "d", "p", s)
       assert {:error, :invalid_name} = Persistence.create_agent("-bad", "d", "p", s)
       assert {:error, :invalid_name} = Persistence.create_agent("has space", "d", "p", s)
-      assert {:error, :invalid_name} = Persistence.create_agent("a!" , "d", "p", s)
+      assert {:error, :invalid_name} = Persistence.create_agent("a!", "d", "p", s)
 
       long_name = String.duplicate("a", 32)
       assert {:error, :invalid_name} = Persistence.create_agent(long_name, "d", "p", s)
@@ -63,7 +63,12 @@ defmodule Hive.PersistenceTest do
     test "updates description and personality", %{server: s} do
       :ok = Persistence.create_agent("carol", "old desc", "old pers", s)
 
-      assert :ok = Persistence.update_agent("carol", %{description: "new desc", personality: "new pers"}, s)
+      assert :ok =
+               Persistence.update_agent(
+                 "carol",
+                 %{description: "new desc", personality: "new pers"},
+                 s
+               )
 
       {:ok, agent} = Persistence.get_agent("carol", s)
       assert agent.description == "new desc"
@@ -231,7 +236,15 @@ defmodule Hive.PersistenceTest do
 
   describe "MCP servers" do
     test "create, list, update, and delete", %{server: s} do
-      :ok = Persistence.create_mcp_server("obsidian", "Obsidian MCP", "npx", ["obsidian-mcp"], %{"KEY" => "val"}, s)
+      :ok =
+        Persistence.create_mcp_server(
+          "obsidian",
+          "Obsidian MCP",
+          "npx",
+          ["obsidian-mcp"],
+          %{"KEY" => "val"},
+          s
+        )
 
       {:ok, servers} = Persistence.get_mcp_servers(s)
       assert length(servers) == 1

@@ -62,7 +62,8 @@ defmodule Hive.MixProject do
       {:bandit, "~> 1.5"},
       # Hive-specific deps
       {:exqlite, "~> 0.27"},
-      {:plug_crypto, "~> 2.1"}
+      {:plug_crypto, "~> 2.1"},
+      {:req, "~> 0.5"}
     ]
   end
 

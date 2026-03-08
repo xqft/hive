@@ -147,10 +147,32 @@ defmodule Hive.TopicTest do
       Topic.post("self-filter", "alice", "hello from alice")
 
       # bob should receive the message
-      assert_receive {:topic_message, "self-filter", "alice", "hello from alice"}
+      assert_receive {:topic_message, "self-filter", message}
+      assert message.sender == "alice"
+      assert message.sender_kind == "agent"
+      assert message.body == "hello from alice"
+      assert %DateTime{} = message.ts
 
       # alice (the sender) should NOT receive her own message
-      refute_receive {:topic_message, "self-filter", "alice", _}
+      refute_receive {:topic_message, "self-filter", _}
+    end
+
+    test "dm topics deliver dm_message envelopes with metadata" do
+      start_topic("dm:alice:bob", type: :dm)
+
+      {:ok, _} = Registry.register(Hive.AgentRegistry, "alice", nil)
+      {:ok, _} = Registry.register(Hive.AgentRegistry, "bob", nil)
+
+      Topic.join("dm:alice:bob", "alice")
+      Topic.join("dm:alice:bob", "bob")
+
+      Topic.post("dm:alice:bob", "alice", "private hello")
+
+      assert_receive {:dm_message, "dm:alice:bob", message}
+      assert message.sender == "alice"
+      assert message.sender_kind == "agent"
+      assert message.body == "private hello"
+      assert %DateTime{} = message.ts
     end
   end
 
@@ -214,6 +236,8 @@ defmodule Hive.TopicTest do
       assert_receive {:mention_invite, "mention-ctx", context}
       assert is_list(context)
       assert length(context) == 3
+      assert Enum.all?(context, &Map.has_key?(&1, :ts))
+      assert Enum.all?(context, &Map.has_key?(&1, :sender_kind))
     end
   end
 
@@ -228,7 +252,13 @@ defmodule Hive.TopicTest do
 
       Topic.post("pubsub-test", "alice", "broadcast me")
 
-      assert_receive {:message, %{topic: "pubsub-test", sender: "alice", body: "broadcast me", ts: %DateTime{}}}
+      assert_receive {:message,
+                      %{
+                        topic: "pubsub-test",
+                        sender: "alice",
+                        body: "broadcast me",
+                        ts: %DateTime{}
+                      }}
     end
   end
 end
