@@ -25,11 +25,11 @@ RUN useradd -m -s /bin/bash hive \
     && mkdir -p /workspace && chown hive:hive /workspace \
     && echo 'hive ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
-USER hive
-ENV PATH="/home/hive/.local/bin:${PATH}"
-
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
+
+USER hive
+ENV PATH="/home/hive/.local/bin:${PATH}"
 
 WORKDIR /workspace
 
