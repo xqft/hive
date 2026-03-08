@@ -273,8 +273,9 @@ const Hooks = {
     mounted() {
       this.term = new XTerm({
         cursorBlink: true,
-        fontFamily: "var(--ui-font-mono)",
+        fontFamily: "'JetBrains Mono', 'SFMono-Regular', 'IBM Plex Mono', 'Cascadia Code', monospace",
         fontSize: 14,
+        lineHeight: 1.15,
         theme: {
           background: '#0a0a0f',
           foreground: '#d4d4d8',
@@ -285,11 +286,13 @@ const Hooks = {
       this.fitAddon = new FitAddon()
       this.term.loadAddon(this.fitAddon)
       this.term.open(this.el)
-      this.fitAddon.fit()
 
-      // Send initial resize to server
-      const { cols, rows } = this.term
-      this.pushEvent("terminal_resize", { cols, rows })
+      // Delay fit until the container is fully laid out
+      requestAnimationFrame(() => {
+        this.fitAddon.fit()
+        const { cols, rows } = this.term
+        this.pushEvent("terminal_resize", { cols, rows })
+      })
 
       // Receive output from server
       this.handleEvent("terminal_output", ({ data }) => {
@@ -301,10 +304,14 @@ const Hooks = {
         this.pushEvent("terminal_input", { data: btoa(data) })
       })
 
-      // Handle window resize
+      // Handle window resize — debounce to avoid flooding
+      this._resizeTimeout = null
       this.resizeObserver = new ResizeObserver(() => {
-        this.fitAddon.fit()
-        this.pushEvent("terminal_resize", { cols: this.term.cols, rows: this.term.rows })
+        clearTimeout(this._resizeTimeout)
+        this._resizeTimeout = setTimeout(() => {
+          this.fitAddon.fit()
+          this.pushEvent("terminal_resize", { cols: this.term.cols, rows: this.term.rows })
+        }, 100)
       })
       this.resizeObserver.observe(this.el)
     },

@@ -990,8 +990,8 @@ select {
 }
 
 .ui-terminal {
-  min-height: 500px;
-  max-height: 80vh;
+  height: calc(100vh - 16rem);
+  min-height: 300px;
   border-radius: var(--ui-radius-lg);
   border: 1px solid var(--ui-border);
   background: #0a0a0f;
@@ -1002,6 +1002,10 @@ select {
 
 .ui-terminal .xterm {
   height: 100%;
+}
+
+.ui-terminal .xterm-viewport {
+  background-color: #0a0a0f !important;
 }
 
 .phx-click-loading .ui-button,
