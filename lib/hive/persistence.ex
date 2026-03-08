@@ -304,31 +304,20 @@ defmodule Hive.Persistence do
   end
 
   def handle_call({:update_agent, name, attrs}, _from, state) do
-    sets = []
-    params = []
-    idx = 1
+    field_specs = [
+      {:description, "description", &Function.identity/1},
+      {:personality, "personality", &Function.identity/1}
+    ]
 
-    {sets, params, idx} =
-      if Map.has_key?(attrs, :description) do
-        {sets ++ ["description = ?#{idx}"], params ++ [attrs[:description]], idx + 1}
-      else
-        {sets, params, idx}
-      end
+    case build_update(attrs, field_specs) do
+      {[], _} ->
+        {:reply, {:error, :no_changes}, state}
 
-    {sets, params, _idx} =
-      if Map.has_key?(attrs, :personality) do
-        {sets ++ ["personality = ?#{idx}"], params ++ [attrs[:personality]], idx + 1}
-      else
-        {sets, params, idx}
-      end
-
-    if sets == [] do
-      {:reply, {:error, :no_changes}, state}
-    else
-      param_idx = length(params) + 1
-      sql = "UPDATE agents SET #{Enum.join(sets, ", ")} WHERE name = ?#{param_idx}"
-      result = exec_write(state.writer, sql, params ++ [name])
-      {:reply, result, state}
+      {sets, params} ->
+        param_idx = length(params) + 1
+        sql = "UPDATE agents SET #{Enum.join(sets, ", ")} WHERE name = ?#{param_idx}"
+        result = exec_write(state.writer, sql, params ++ [name])
+        {:reply, result, state}
     end
   end
 
@@ -391,45 +380,22 @@ defmodule Hive.Persistence do
   end
 
   def handle_call({:update_mcp_server, name, attrs}, _from, state) do
-    sets = []
-    params = []
-    idx = 1
+    field_specs = [
+      {:description, "description", &Function.identity/1},
+      {:command, "command", &Function.identity/1},
+      {:args, "args", &Jason.encode!/1},
+      {:env, "env", &Jason.encode!/1}
+    ]
 
-    {sets, params, idx} =
-      if Map.has_key?(attrs, :description) do
-        {sets ++ ["description = ?#{idx}"], params ++ [attrs[:description]], idx + 1}
-      else
-        {sets, params, idx}
-      end
+    case build_update(attrs, field_specs) do
+      {[], _} ->
+        {:reply, {:error, :no_changes}, state}
 
-    {sets, params, idx} =
-      if Map.has_key?(attrs, :command) do
-        {sets ++ ["command = ?#{idx}"], params ++ [attrs[:command]], idx + 1}
-      else
-        {sets, params, idx}
-      end
-
-    {sets, params, idx} =
-      if Map.has_key?(attrs, :args) do
-        {sets ++ ["args = ?#{idx}"], params ++ [Jason.encode!(attrs[:args])], idx + 1}
-      else
-        {sets, params, idx}
-      end
-
-    {sets, params, _idx} =
-      if Map.has_key?(attrs, :env) do
-        {sets ++ ["env = ?#{idx}"], params ++ [Jason.encode!(attrs[:env])], idx + 1}
-      else
-        {sets, params, idx}
-      end
-
-    if sets == [] do
-      {:reply, {:error, :no_changes}, state}
-    else
-      param_idx = length(params) + 1
-      sql = "UPDATE mcp_servers SET #{Enum.join(sets, ", ")} WHERE name = ?#{param_idx}"
-      result = exec_write(state.writer, sql, params ++ [name])
-      {:reply, result, state}
+      {sets, params} ->
+        param_idx = length(params) + 1
+        sql = "UPDATE mcp_servers SET #{Enum.join(sets, ", ")} WHERE name = ?#{param_idx}"
+        result = exec_write(state.writer, sql, params ++ [name])
+        {:reply, result, state}
     end
   end
 
@@ -484,6 +450,17 @@ defmodule Hive.Persistence do
 
   defp set_reader_pragmas(conn) do
     :ok = Sqlite3.execute(conn, "PRAGMA busy_timeout=5000")
+  end
+
+  defp build_update(attrs, field_specs) do
+    Enum.reduce(field_specs, {[], [], 1}, fn {key, col, transform}, {sets, params, idx} ->
+      if Map.has_key?(attrs, key) do
+        {["#{col} = ?#{idx}" | sets], [transform.(attrs[key]) | params], idx + 1}
+      else
+        {sets, params, idx}
+      end
+    end)
+    |> then(fn {sets, params, _} -> {Enum.reverse(sets), Enum.reverse(params)} end)
   end
 
   defp run_migrations(conn) do
