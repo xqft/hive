@@ -65,7 +65,8 @@ defmodule Hive.MixProject do
       {:plug_crypto, "~> 2.1"},
       {:req, "~> 0.5"},
       {:earmark, "~> 1.4"},
-      {:html_sanitize_ex, "~> 1.4"}
+      {:html_sanitize_ex, "~> 1.4"},
+      {:stream_data, "~> 1.0", only: :test}
     ]
   end
 

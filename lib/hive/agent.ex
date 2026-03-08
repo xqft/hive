@@ -363,6 +363,30 @@ defmodule Hive.Agent do
     agent_dir = agent_dir(agent_name)
     File.mkdir_p!(agent_dir)
 
+    case Application.get_env(:hive, :agent_sdk_command) do
+      {executable, args_fn} when is_function(args_fn, 2) ->
+        # Test/custom SDK command — args_fn receives (agent_name, session_id)
+        args = args_fn.(agent_name, session_id)
+        stderr_log = Path.join(agent_dir, "sdk_stderr.log")
+        shell_cmd = Enum.join([executable | args], " ") <> " 2>>#{stderr_log}"
+
+        Port.open(
+          {:spawn_executable, ~c"/bin/sh"},
+          [
+            :binary,
+            :exit_status,
+            args: ["-c", shell_cmd],
+            env: [],
+            line: 65_536
+          ]
+        )
+
+      _ ->
+        start_default_sdk_process(agent_name, agent_dir, session_id)
+    end
+  end
+
+  defp start_default_sdk_process(agent_name, agent_dir, session_id) do
     mcp_config_path = mcp_config_path(agent_name)
     system_prompt_path = write_dynamic_context(agent_name, agent_dir)
 

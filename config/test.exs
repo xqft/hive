@@ -10,6 +10,13 @@ config :hive, HiveWeb.Endpoint,
   secret_key_base: "T0qrbedAShpj2joVhf+ryHXJs56oShyW+HmoFqfmgvKaJEoZ6b2vGwM1MrRbH1s1",
   server: false
 
+# Configure mock SDK for Agent tests
+config :hive, :agent_sdk_command,
+  {System.find_executable("node") || "node",
+   fn agent_name, _session_id ->
+     [Path.expand("test/support/mock_sdk.js")]
+   end}
+
 # Print only warnings and errors during test
 config :logger, level: :warning
 

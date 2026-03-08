@@ -1,7 +1,7 @@
 -include .env
 export
 
-.PHONY: setup deps compile test server iex docker-build clean
+.PHONY: setup deps compile test test-sdk test-docker server iex docker-build clean
 
 # Full project setup
 setup: deps
@@ -21,6 +21,15 @@ compile:
 # Run tests
 test:
 	mix test
+
+# Run JS SDK tests
+test-sdk:
+	cd sdk && npm test
+
+# Build and verify Docker image
+test-docker:
+	docker build -t hive-claude-code:test -f docker/Dockerfile.claude-code .
+	docker run --rm --entrypoint sh hive-claude-code:test -c 'claude --version'
 
 # Start Phoenix server
 server:

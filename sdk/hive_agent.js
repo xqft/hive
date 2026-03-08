@@ -2,6 +2,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import * as readline from "readline";
 import * as fs from "fs";
+import { createBatcher } from "./message_batcher.js";
 
 const agentName = process.argv[2];
 const mcpConfigPath = process.argv[3];
@@ -13,35 +14,17 @@ const mcpConfig = JSON.parse(fs.readFileSync(mcpConfigPath, "utf8"));
 let sessionId = resumeSessionId;
 
 const rl = readline.createInterface({ input: process.stdin });
-let pending = [];
-let processing = false;
-let flushScheduled = false;
-
-rl.on("line", (line) => {
-  pending.push(line);
-  // Defer processing to next tick so all lines from one stdin chunk
-  // are collected before we start a turn. Without this, multi-line
-  // messages get split across separate SDK turns (causing duplicates).
-  if (!processing && !flushScheduled) {
-    flushScheduled = true;
-    setImmediate(() => {
-      flushScheduled = false;
-      if (!processing && pending.length > 0) processNext();
-    });
-  }
-});
-
-async function processNext() {
-  if (pending.length === 0) {
-    processing = false;
+const batcher = createBatcher(async (batch) => {
+  if (batch === null) {
     process.stdout.write(JSON.stringify({ type: "status", status: "idle" }) + "\n");
     return;
   }
-
-  processing = true;
   process.stdout.write(JSON.stringify({ type: "status", status: "thinking" }) + "\n");
+  await processNext(batch);
+});
+rl.on("line", (line) => batcher.pushLine(line));
 
-  const batch = pending.splice(0, pending.length).join("\n");
+async function processNext(batch) {
 
   try {
     // Build allowedTools
@@ -140,6 +123,4 @@ async function processNext() {
       JSON.stringify({ type: "error", message: err.message }) + "\n"
     );
   }
-
-  processNext();
 }
