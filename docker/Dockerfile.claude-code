@@ -12,6 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Playwright's Chromium + system deps (for browser automation MCP)
+RUN npx -y playwright install --with-deps chromium
+
 # Install Claude Code CLI (as root, then copy for hive user)
 RUN curl -fsSL https://claude.ai/install.sh | bash -s -- "${CLAUDE_CODE_VERSION}"
 
@@ -39,6 +42,10 @@ RUN mkdir -p /home/hive/.claude && \
       > /home/hive/.claude/settings.json && \
     printf '%s\n' '{"numStartups": 1, "hasCompletedOnboarding": true, "lastOnboardingVersion": "99.0.0", "installMethod": "native"}' \
       > /home/hive/.claude.json
+
+# Playwright MCP server — available to Claude Code in /workspace
+RUN printf '%s\n' '{"mcpServers":{"playwright":{"command":"npx","args":["@playwright/mcp@latest","--headless","--browser","chromium","--no-sandbox"]}}}' \
+      > /workspace/.mcp.json
 
 WORKDIR /workspace
 
