@@ -25,7 +25,7 @@ defmodule Hive.TerminalRelay do
     GenServer.cast(pid, {:input, data})
   end
 
-  @doc "Request terminal resize."
+  @doc "Resize the terminal. Restarts the PTY with new dimensions."
   def resize(pid, cols, rows) do
     GenServer.cast(pid, {:resize, cols, rows})
   end
@@ -38,29 +38,21 @@ defmodule Hive.TerminalRelay do
   def init(opts) do
     container_id = Keyword.fetch!(opts, :container_id)
     viewer = Keyword.fetch!(opts, :viewer)
+    cols = Keyword.get(opts, :cols, 120)
+    rows = Keyword.get(opts, :rows, 35)
 
     # Monitor the viewer (LiveView process) so we terminate when it disconnects
     Process.monitor(viewer)
 
-    docker = docker_executable()
-
-    # Use `script` to allocate a PTY for the docker exec subprocess.
-    # -q: quiet (no "Script started" header), -f: flush after write, -c: command
-    port =
-      Port.open(
-        {:spawn_executable, System.find_executable("script") || "/usr/bin/script"},
-        [
-          :binary,
-          :exit_status,
-          args: ["-qfc", "#{docker} exec -it #{container_id} tmux attach -t main", "/dev/null"]
-        ]
-      )
+    port = open_port(container_id, cols, rows)
 
     {:ok,
      %{
        port: port,
        container_id: container_id,
-       viewer: viewer
+       viewer: viewer,
+       cols: cols,
+       rows: rows
      }}
   end
 
@@ -76,25 +68,22 @@ defmodule Hive.TerminalRelay do
   end
 
   def handle_cast({:resize, cols, rows}, state) do
-    # Resize via a separate docker exec (not through the relay port)
-    docker = docker_executable()
+    # Skip if dimensions haven't changed
+    if cols == state.cols and rows == state.rows do
+      {:noreply, state}
+    else
+      # Close old port (docker exec detaches, tmux session persists)
+      try do
+        Port.close(state.port)
+      rescue
+        ArgumentError -> :ok
+      end
 
-    Task.start(fn ->
-      System.cmd(docker, [
-        "exec",
-        state.container_id,
-        "tmux",
-        "resize-window",
-        "-t",
-        "main",
-        "-x",
-        to_string(cols),
-        "-y",
-        to_string(rows)
-      ], stderr_to_stdout: true)
-    end)
+      # Open new port with correct PTY dimensions
+      port = open_port(state.container_id, cols, rows)
 
-    {:noreply, state}
+      {:noreply, %{state | port: port, cols: cols, rows: rows}}
+    end
   end
 
   @impl true
@@ -106,6 +95,11 @@ defmodule Hive.TerminalRelay do
   def handle_info({port, {:exit_status, _code}}, %{port: port} = state) do
     send(state.viewer, :terminal_closed)
     {:stop, :normal, state}
+  end
+
+  # Ignore exit_status from a previously closed port
+  def handle_info({_old_port, {:exit_status, _code}}, state) do
+    {:noreply, state}
   end
 
   # Viewer (LiveView) went down — clean up
@@ -131,6 +125,24 @@ defmodule Hive.TerminalRelay do
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
+
+  defp open_port(container_id, cols, rows) do
+    docker = docker_executable()
+    script = System.find_executable("script") || "/usr/bin/script"
+
+    # Use stty to set the PTY size before attaching to tmux.
+    # This ensures tmux sees the correct client dimensions.
+    cmd = "stty cols #{cols} rows #{rows} 2>/dev/null; exec #{docker} exec -it #{container_id} tmux attach -t main"
+
+    Port.open(
+      {:spawn_executable, script},
+      [
+        :binary,
+        :exit_status,
+        args: ["-qfc", cmd, "/dev/null"]
+      ]
+    )
+  end
 
   defp docker_executable do
     Application.get_env(:hive, :container_docker_executable) ||

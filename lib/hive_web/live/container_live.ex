@@ -3,25 +3,10 @@ defmodule HiveWeb.ContainerLive do
 
   @impl true
   def mount(%{"id" => container_id}, _session, socket) do
-    relay =
-      if connected?(socket) do
-        Phoenix.PubSub.subscribe(Hive.PubSub, "container:#{container_id}")
-        Phoenix.PubSub.subscribe(Hive.PubSub, "containers")
-
-        case Hive.Container.check(container_id) do
-          {:ok, _} ->
-            case Hive.TerminalRelay.start_link(
-                   container_id: container_id,
-                   viewer: self()
-                 ) do
-              {:ok, pid} -> pid
-              {:error, _} -> nil
-            end
-
-          {:error, :not_found} ->
-            nil
-        end
-      end
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(Hive.PubSub, "container:#{container_id}")
+      Phoenix.PubSub.subscribe(Hive.PubSub, "containers")
+    end
 
     {status, _} = load_initial_state(container_id)
 
@@ -30,7 +15,7 @@ defmodule HiveWeb.ContainerLive do
        page_title: container_id,
        container_id: container_id,
        status: status,
-       relay: relay
+       relay: nil
      )}
   end
 
@@ -127,11 +112,16 @@ defmodule HiveWeb.ContainerLive do
   end
 
   def handle_event("terminal_resize", %{"cols" => cols, "rows" => rows}, socket) do
-    if socket.assigns.relay do
-      Hive.TerminalRelay.resize(socket.assigns.relay, cols, rows)
-    end
+    case socket.assigns.relay do
+      nil ->
+        # First resize event from xterm.js — start relay with correct dimensions
+        relay = start_relay(socket.assigns.container_id, cols, rows)
+        {:noreply, assign(socket, :relay, relay)}
 
-    {:noreply, socket}
+      pid when is_pid(pid) ->
+        Hive.TerminalRelay.resize(pid, cols, rows)
+        {:noreply, socket}
+    end
   end
 
   def handle_event("kill", _params, socket) do
@@ -139,7 +129,25 @@ defmodule HiveWeb.ContainerLive do
     {:noreply, push_navigate(socket, to: ~p"/dashboard")}
   end
 
-  # -- Data loading ------------------------------------------------------------
+  # -- Private ----------------------------------------------------------------
+
+  defp start_relay(container_id, cols, rows) do
+    case Hive.Container.check(container_id) do
+      {:ok, _} ->
+        case Hive.TerminalRelay.start_link(
+               container_id: container_id,
+               viewer: self(),
+               cols: cols,
+               rows: rows
+             ) do
+          {:ok, pid} -> pid
+          {:error, _} -> nil
+        end
+
+      {:error, :not_found} ->
+        nil
+    end
+  end
 
   defp load_initial_state(container_id) do
     case Hive.Container.check(container_id) do
