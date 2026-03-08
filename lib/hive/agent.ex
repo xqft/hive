@@ -561,7 +561,9 @@ defmodule Hive.Agent do
 
     For coding tasks, start Claude Code interactively inside the container:
       send_to_container(container_id, "claude --dangerously-skip-permissions")
-    Then send prompts/steering input to the interactive Claude Code session.
+    Then use send_to_container to send prompts and steering input to the
+    interactive Claude Code session, and capture_container_output to read results.
+    The container has git, python3, node, and common dev tools pre-installed.
     You'll be notified when the container exits or times out.
 
     ### Self-Modification

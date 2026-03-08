@@ -31,6 +31,13 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 USER hive
 ENV PATH="/home/hive/.local/bin:${PATH}"
 
+# Pre-configure Claude Code to skip first-run onboarding (theme picker,
+# permission confirmation, etc.). Auth is handled at runtime via
+# CLAUDE_CODE_OAUTH_TOKEN env var passed by Hive.Container.
+RUN mkdir -p /home/hive/.claude && \
+    printf '%s\n' '{"skipDangerousModePermissionPrompt": true, "effortLevel": "max"}' \
+      > /home/hive/.claude/settings.json
+
 WORKDIR /workspace
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
