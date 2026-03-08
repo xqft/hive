@@ -137,6 +137,7 @@ defmodule HiveWeb.CoreComponents do
   attr :title, :string, required: true
   attr :subtitle, :string, default: nil
   slot :actions
+  slot :sidebar_extra
   slot :inner_block, required: true
 
   def app_shell(assigns) do
@@ -151,7 +152,7 @@ defmodule HiveWeb.CoreComponents do
     ~H"""
     <div class="ui-shell">
       <aside class="ui-sidebar">
-        <div>
+        <div class="ui-sidebar__body">
           <div class="ui-brand">
             <div class="ui-brand__mark">H</div>
             <div>
@@ -170,6 +171,10 @@ defmodule HiveWeb.CoreComponents do
               <span>{item.label}</span>
             </.link>
           </nav>
+
+          <div :if={@sidebar_extra != []} class="ui-sidebar__extra">
+            {render_slot(@sidebar_extra)}
+          </div>
         </div>
 
         <div class="ui-sidebar__footer">
