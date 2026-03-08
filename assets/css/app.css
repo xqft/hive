@@ -508,10 +508,14 @@ select {
 
 .ui-chat-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 18rem;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
   height: 100%;
   min-height: 0;
+}
+
+.ui-chat-layout--with-aside {
+  grid-template-columns: minmax(0, 1fr) 18rem;
 }
 
 .ui-surface {
@@ -534,19 +538,12 @@ select {
   overflow: hidden;
 }
 
-.ui-chat-panel__header {
+.ui-chat-panel__toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1rem 1.15rem;
+  gap: 0.5rem;
+  padding: 0.5rem 1.15rem;
   border-bottom: 1px solid var(--ui-border);
-}
-
-.ui-chat-panel__title {
-  font-size: 1.05rem;
-  font-weight: 650;
-  color: var(--ui-text-strong);
 }
 
 .ui-chat-meta {
@@ -558,6 +555,70 @@ select {
   font-size: 0.78rem;
   color: var(--ui-text-soft);
   background: var(--ui-surface-muted);
+}
+
+.ui-chat-meta--btn {
+  cursor: pointer;
+  border: 0;
+}
+
+.ui-chat-meta--btn:hover {
+  background: var(--ui-accent-soft);
+}
+
+.ui-chat-meta--btn.is-active {
+  background: var(--ui-accent-soft);
+  color: var(--ui-accent);
+}
+
+.ui-chat-aside__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--ui-border);
+  margin-bottom: 0.75rem;
+}
+
+.ui-chat-aside__tabs {
+  display: flex;
+}
+
+.ui-chat-aside__tab {
+  padding: 0.4rem 0.75rem;
+  border: 0;
+  background: transparent;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ui-text-soft);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.ui-chat-aside__tab:hover {
+  color: var(--ui-text-strong);
+}
+
+.ui-chat-aside__tab.is-active {
+  color: var(--ui-accent);
+  border-bottom-color: var(--ui-accent);
+}
+
+.ui-chat-aside__close {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--ui-text-soft);
+  cursor: pointer;
+}
+
+.ui-chat-aside__close:hover {
+  background: var(--ui-surface-muted);
+  color: var(--ui-text-strong);
 }
 
 .ui-chat-groups,

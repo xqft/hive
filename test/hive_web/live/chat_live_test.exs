@@ -79,9 +79,9 @@ defmodule HiveWeb.ChatLiveTest do
       assert html =~ "Direct messages"
     end
 
-    test "shows Members section", %{conn: conn} do
+    test "shows members badge", %{conn: conn} do
       {:ok, _view, html} = live(conn, "/")
-      assert html =~ "Members"
+      assert html =~ "members"
     end
 
     test "shows navigation links", %{conn: conn} do
@@ -101,7 +101,7 @@ defmodule HiveWeb.ChatLiveTest do
       {:ok, view, _html} = live(conn, "/")
 
       view |> element("#topic-#{topic}") |> render_click()
-      assert has_element?(view, ".ui-chat-panel__title", "##{topic}")
+      assert has_element?(view, "#topic-#{topic}.is-active")
     end
 
     test "selecting a topic loads its messages", %{conn: conn} do

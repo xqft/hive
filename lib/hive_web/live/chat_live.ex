@@ -61,6 +61,8 @@ defmodule HiveWeb.ChatLive do
       |> assign(:new_topic_error, nil)
       |> assign(:form_reset, 0)
       |> assign(:typing_agents, [])
+      |> assign(:aside_open, false)
+      |> assign(:aside_tab, "members")
       |> allow_upload(:media,
         accept: ~w(.jpg .jpeg .png .gif .webp),
         max_entries: 4,
@@ -188,18 +190,17 @@ defmodule HiveWeb.ChatLive do
         </:sidebar_extra>
 
         <div class="ui-chat-screen">
-          <div class="ui-chat-layout">
+          <div class={["ui-chat-layout", @aside_open && "ui-chat-layout--with-aside"]}>
             <section class="ui-chat-panel ui-surface">
-              <div class="ui-chat-panel__header">
-                <div>
-                  <p class="ui-section-label">Active conversation</p>
-                  <h2 class="ui-chat-panel__title">{active_topic_label(@active_topic)}</h2>
-                </div>
-
-                <div class="ui-chat-meta">
+              <div class="ui-chat-panel__toolbar">
+                <button type="button" phx-click="toggle_aside" phx-value-tab="members" class={["ui-chat-meta ui-chat-meta--btn", @aside_open && @aside_tab == "members" && "is-active"]}>
                   <.icon name="hero-user-group" class="size-4" />
                   <span>{length(@members)} members</span>
-                </div>
+                </button>
+                <button :if={@containers != []} type="button" phx-click="toggle_aside" phx-value-tab="containers" class={["ui-chat-meta ui-chat-meta--btn", @aside_open && @aside_tab == "containers" && "is-active"]}>
+                  <.icon name="hero-cube" class="size-4" />
+                  <span>{length(@containers)}</span>
+                </button>
               </div>
 
               <div id="messages" class="ui-chat-messages" phx-hook="ScrollBottom">
@@ -311,59 +312,61 @@ defmodule HiveWeb.ChatLive do
               </form>
             </section>
 
-            <aside class="ui-chat-aside ui-surface">
-              <div class="ui-stack">
-                <section class="ui-stack">
+            <aside :if={@aside_open} class="ui-chat-aside ui-surface">
+              <div class="ui-chat-aside__header">
+                <div class="ui-chat-aside__tabs">
+                  <button type="button" phx-click="switch_aside_tab" phx-value-tab="members" class={["ui-chat-aside__tab", @aside_tab == "members" && "is-active"]}>
+                    Members
+                  </button>
+                  <button type="button" phx-click="switch_aside_tab" phx-value-tab="containers" class={["ui-chat-aside__tab", @aside_tab == "containers" && "is-active"]}>
+                    Containers
+                  </button>
+                </div>
+                <button type="button" phx-click="close_aside" class="ui-chat-aside__close" aria-label="Close">
+                  <.icon name="hero-x-mark" class="size-4" />
+                </button>
+              </div>
+
+              <div :if={@aside_tab == "members"} class="ui-stack">
+                <div :if={@members == []} class="ui-empty">
+                  No active members in this conversation.
+                </div>
+
+                <div
+                  :for={member <- @members}
+                  class="ui-list-row rounded-2xl bg-[var(--ui-surface-muted)] px-3 py-2"
+                >
                   <div>
-                    <p class="ui-section-label">Members</p>
-                    <p class="ui-helper-text">Who is currently subscribed here.</p>
+                    <p class="font-medium text-[var(--ui-text-strong)]">{member}</p>
+                    <p class="ui-helper-text">{status_text(@agent_statuses[member])}</p>
                   </div>
+                  <span class="ui-pill" style={"color: #{status_color(@agent_statuses[member])}"}>
+                    <span class="ui-dot"></span>
+                    {status_text(@agent_statuses[member])}
+                  </span>
+                </div>
+              </div>
 
-                  <div :if={@members == []} class="ui-empty">
-                    No active members in this conversation.
-                  </div>
+              <div :if={@aside_tab == "containers"} class="ui-stack">
+                <div :if={@containers == []} class="ui-empty">No active containers right now.</div>
 
-                  <div
-                    :for={member <- @members}
-                    class="ui-list-row rounded-2xl bg-[var(--ui-surface-muted)] px-3 py-2"
-                  >
+                <.link
+                  :for={container <- @containers}
+                  navigate={~p"/containers/#{container.id}"}
+                  class="ui-container-card-link"
+                >
+                  <div class="ui-card ui-stack">
                     <div>
-                      <p class="font-medium text-[var(--ui-text-strong)]">{member}</p>
-                      <p class="ui-helper-text">{status_text(@agent_statuses[member])}</p>
-                    </div>
-                    <span class="ui-pill" style={"color: #{status_color(@agent_statuses[member])}"}>
-                      <span class="ui-dot"></span>
-                      {status_text(@agent_statuses[member])}
-                    </span>
-                  </div>
-                </section>
-
-                <section class="ui-stack">
-                  <div>
-                    <p class="ui-section-label">Containers</p>
-                    <p class="ui-helper-text">Active runtime tasks surfaced next to the chat.</p>
-                  </div>
-
-                  <div :if={@containers == []} class="ui-empty">No active containers right now.</div>
-
-                  <.link
-                    :for={container <- @containers}
-                    navigate={~p"/containers/#{container.id}"}
-                    class="ui-container-card-link"
-                  >
-                    <div class="ui-card ui-stack">
-                      <div>
-                        <p class="text-sm text-[var(--ui-text-strong)]">
-                          {container.task || "Running..."}
-                        </p>
-                        <div class="mt-1.5 flex items-center gap-2">
-                          <span class="ui-pill">{container.agent || "container"}</span>
-                          <span class="ui-container-card-meta">{short_container_id(container.id)}</span>
-                        </div>
+                      <p class="text-sm text-[var(--ui-text-strong)]">
+                        {container.task || "Running..."}
+                      </p>
+                      <div class="mt-1.5 flex items-center gap-2">
+                        <span class="ui-pill">{container.agent || "container"}</span>
+                        <span class="ui-container-card-meta">{short_container_id(container.id)}</span>
                       </div>
                     </div>
-                  </.link>
-                </section>
+                  </div>
+                </.link>
               </div>
             </aside>
           </div>
@@ -548,6 +551,22 @@ defmodule HiveWeb.ChatLive do
     {:noreply, socket}
   end
 
+  def handle_event("toggle_aside", %{"tab" => tab}, socket) do
+    if socket.assigns.aside_open && socket.assigns.aside_tab == tab do
+      {:noreply, assign(socket, aside_open: false)}
+    else
+      {:noreply, assign(socket, aside_open: true, aside_tab: tab)}
+    end
+  end
+
+  def handle_event("switch_aside_tab", %{"tab" => tab}, socket) do
+    {:noreply, assign(socket, aside_tab: tab)}
+  end
+
+  def handle_event("close_aside", _params, socket) do
+    {:noreply, assign(socket, aside_open: false)}
+  end
+
   def handle_event("kill_container", %{"id" => id}, socket) do
     Hive.Container.kill(id)
     {:noreply, socket}
@@ -652,7 +671,10 @@ defmodule HiveWeb.ChatLive do
     container = %{id: id, task: task, agent: agent_name}
 
     {:noreply,
-     assign(socket, :containers, upsert_container(socket.assigns.containers, container))}
+     socket
+     |> assign(:containers, upsert_container(socket.assigns.containers, container))
+     |> assign(:aside_open, true)
+     |> assign(:aside_tab, "containers")}
   end
 
   # Container stopped
