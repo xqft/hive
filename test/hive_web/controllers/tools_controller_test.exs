@@ -41,6 +41,13 @@ defmodule HiveWeb.ToolsControllerTest do
     Path.join([agent_dir(agent), ".claude", "skills", skill])
   end
 
+  # Unique within a VM via unique_integer, unique across VMs via system_time fragment
+  defp unique(prefix) do
+    ts = rem(System.system_time(:millisecond), 100_000)
+    n = :erlang.unique_integer([:positive])
+    "#{prefix}-#{ts}n#{n}"
+  end
+
   defp put_hive_env(key, value) do
     previous = Application.get_env(:hive, key)
     Application.put_env(:hive, key, value)
@@ -54,29 +61,31 @@ defmodule HiveWeb.ToolsControllerTest do
     end)
   end
 
+  defp cleanup_topic(name) do
+    on_exit(fn ->
+      case Registry.lookup(Hive.TopicRegistry, name) do
+        [{pid, _}] -> DynamicSupervisor.terminate_child(Hive.TopicSup, pid)
+        [] -> :ok
+      end
+
+      Hive.Persistence.delete_topic(name)
+    end)
+  end
+
+  defp cleanup_agent(name) do
+    on_exit(fn ->
+      Hive.Persistence.delete_agent(name)
+    end)
+  end
+
   setup %{conn: conn} do
     conn = put_req_header(conn, "content-type", "application/json")
 
-    # Clean up any test agent directories after each test
     on_exit(fn ->
       File.rm_rf(agent_dir("test-agent"))
       File.rm_rf(agent_dir("test-agent2"))
-
-      # Clean up test entities from persistence (best-effort)
       Hive.Persistence.delete_agent("test-agent")
       Hive.Persistence.delete_agent("test-agent2")
-      Hive.Persistence.delete_agent("list-agent-a")
-      Hive.Persistence.delete_agent("list-agent-b")
-
-      for topic <- ["test-topic", "dup-topic-test", "list-topic-a", "list-topic-b"] do
-        # Stop the topic GenServer if running
-        case Registry.lookup(Hive.TopicRegistry, topic) do
-          [{pid, _}] -> GenServer.stop(pid, :normal)
-          [] -> :ok
-        end
-
-        Hive.Persistence.delete_topic(topic)
-      end
     end)
 
     {:ok, conn: conn}
@@ -540,25 +549,26 @@ defmodule HiveWeb.ToolsControllerTest do
 
   describe "create_topic" do
     test "creates a topic with a valid name", %{conn: conn} do
+      topic = unique("test-topic")
+      cleanup_topic(topic)
+
       body =
         conn
         |> tool_call("test-agent", "create_topic", %{
-          name: "test-topic",
+          name: topic,
           description: "A test topic"
         })
         |> json_response(200)
 
       assert body["ok"] == true
-      assert body["result"] =~ "test-topic"
+      assert body["result"] =~ topic
       assert body["result"] =~ "created"
 
-      # Verify topic exists in persistence
-      {:ok, topic} = Hive.Persistence.get_topic("test-topic")
-      assert topic.name == "test-topic"
-      assert topic.description == "A test topic"
+      {:ok, persisted} = Hive.Persistence.get_topic(topic)
+      assert persisted.name == topic
+      assert persisted.description == "A test topic"
 
-      # Verify the Topic GenServer is running
-      assert [{_pid, _}] = Registry.lookup(Hive.TopicRegistry, "test-topic")
+      assert [{_pid, _}] = Registry.lookup(Hive.TopicRegistry, topic)
     end
 
     test "rejects invalid topic name", %{conn: conn} do
@@ -575,19 +585,20 @@ defmodule HiveWeb.ToolsControllerTest do
     end
 
     test "rejects duplicate topic name", %{conn: conn} do
-      # Create the topic first via persistence + GenServer
-      :ok = Hive.Persistence.create_topic("dup-topic-test", "first", "topic", "test-agent")
+      topic = unique("dup-topic")
 
-      DynamicSupervisor.start_child(
-        Hive.TopicSup,
-        {Hive.Topic,
-         name: "dup-topic-test", description: "first", type: :topic, created_by: "test-agent"}
+      :ok = Hive.Persistence.create_topic(topic, "first", "topic", "test-agent")
+
+      start_supervised!(
+        {Hive.Topic, name: topic, description: "first", type: :topic, created_by: "test-agent"}
       )
+
+      on_exit(fn -> Hive.Persistence.delete_topic(topic) end)
 
       body =
         conn
         |> tool_call("test-agent", "create_topic", %{
-          name: "dup-topic-test",
+          name: topic,
           description: "duplicate"
         })
         |> json_response(200)
@@ -603,26 +614,17 @@ defmodule HiveWeb.ToolsControllerTest do
 
   describe "send_message" do
     setup %{conn: conn} do
-      topic_name = "msg-topic-#{:erlang.unique_integer([:positive])}"
+      topic_name = unique("msg-topic")
       :ok = Hive.Persistence.create_topic(topic_name, "messages", "topic", "test-agent")
 
-      {:ok, _pid} =
-        DynamicSupervisor.start_child(
-          Hive.TopicSup,
-          {Hive.Topic,
-           name: topic_name, description: "messages", type: :topic, created_by: "test-agent"}
-        )
+      start_supervised!(
+        {Hive.Topic,
+         name: topic_name, description: "messages", type: :topic, created_by: "test-agent"}
+      )
 
       Hive.Topic.join(topic_name, "test-agent")
 
-      on_exit(fn ->
-        case Registry.lookup(Hive.TopicRegistry, topic_name) do
-          [{pid, _}] -> GenServer.stop(pid, :normal)
-          [] -> :ok
-        end
-
-        Hive.Persistence.delete_topic(topic_name)
-      end)
+      on_exit(fn -> Hive.Persistence.delete_topic(topic_name) end)
 
       {:ok, conn: conn, topic_name: topic_name}
     end
@@ -664,8 +666,12 @@ defmodule HiveWeb.ToolsControllerTest do
 
   describe "list_agents" do
     test "returns a JSON list of agents", %{conn: conn} do
-      Hive.Persistence.create_agent("list-agent-a", "Agent A", "personality A")
-      Hive.Persistence.create_agent("list-agent-b", "Agent B", "personality B")
+      a = unique("list-agent-a")
+      b = unique("list-agent-b")
+      Hive.Persistence.create_agent(a, "Agent A", "personality A")
+      Hive.Persistence.create_agent(b, "Agent B", "personality B")
+      cleanup_agent(a)
+      cleanup_agent(b)
 
       body =
         conn
@@ -677,8 +683,8 @@ defmodule HiveWeb.ToolsControllerTest do
       agents = Jason.decode!(body["result"])
       agent_names = Enum.map(agents, & &1["name"])
 
-      assert "list-agent-a" in agent_names
-      assert "list-agent-b" in agent_names
+      assert a in agent_names
+      assert b in agent_names
     end
   end
 
@@ -688,8 +694,12 @@ defmodule HiveWeb.ToolsControllerTest do
 
   describe "list_topics" do
     test "returns a JSON list of topics", %{conn: conn} do
-      :ok = Hive.Persistence.create_topic("list-topic-a", "Topic A", "topic", nil)
-      :ok = Hive.Persistence.create_topic("list-topic-b", "Topic B", "topic", nil)
+      a = unique("list-topic-a")
+      b = unique("list-topic-b")
+      :ok = Hive.Persistence.create_topic(a, "Topic A", "topic", nil)
+      :ok = Hive.Persistence.create_topic(b, "Topic B", "topic", nil)
+      cleanup_topic(a)
+      cleanup_topic(b)
 
       body =
         conn
@@ -701,8 +711,8 @@ defmodule HiveWeb.ToolsControllerTest do
       topics = Jason.decode!(body["result"])
       topic_names = Enum.map(topics, & &1["name"])
 
-      assert "list-topic-a" in topic_names
-      assert "list-topic-b" in topic_names
+      assert a in topic_names
+      assert b in topic_names
     end
   end
 end

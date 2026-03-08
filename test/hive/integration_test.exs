@@ -29,9 +29,10 @@ defmodule Hive.IntegrationTest do
     # The app-level Persistence is already running, so we use it directly
     # but clean up any test data we create.
 
-    # Generate unique prefixes to avoid collisions between tests
-    uid = :erlang.unique_integer([:positive])
-    prefix = "it#{uid}"
+    # Generate unique prefixes to avoid collisions between tests and across VM restarts
+    ts = rem(System.system_time(:millisecond), 100_000)
+    n = :erlang.unique_integer([:positive])
+    prefix = "it#{ts}x#{n}"
 
     on_exit(fn ->
       # Clean up all agents/topics/etc we may have created.
