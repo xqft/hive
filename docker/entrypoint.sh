@@ -12,7 +12,9 @@ if [ -f /tmp/task.txt ]; then
     "claude --dangerously-skip-permissions --output-format json --settings '{\"effortLevel\":\"max\"}' -p \"\$(cat /tmp/task.txt)\"" Enter
 fi
 
-# Keep container alive while tmux session exists
+# Keep container alive while tmux session exists.
+# Periodically save pane content so it can be retrieved after container stops.
 while tmux has-session -t main 2>/dev/null; do
+  tmux capture-pane -p -S - -t main > /tmp/last_output.txt 2>/dev/null || true
   sleep 1
 done

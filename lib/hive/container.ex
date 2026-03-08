@@ -527,6 +527,7 @@ defmodule Hive.Container do
     """
   end
 
+  # Capture tmux pane from a running container via docker exec
   defp capture_pane(container_id) do
     docker = docker_executable()
 
@@ -542,8 +543,36 @@ defmodule Hive.Container do
     _ -> "(unable to capture terminal output)"
   end
 
+  # Extract saved output from a stopped container via docker cp.
+  # The entrypoint saves tmux pane content to /tmp/last_output.txt every second.
+  defp extract_saved_output(container_id) do
+    docker = docker_executable()
+    tmp = "/tmp/#{container_id}_output.txt"
+
+    case System.cmd(docker, ["cp", "#{container_id}:/tmp/last_output.txt", tmp],
+           stderr_to_stdout: true
+         ) do
+      {_, 0} ->
+        output = File.read!(tmp)
+        File.rm(tmp)
+        output
+
+      _ ->
+        "(no output captured)"
+    end
+  rescue
+    _ -> "(no output captured)"
+  end
+
   defp notify_agent(state, exit_code, extra_info \\ nil) do
-    output = capture_pane(state.id)
+    # For stopped containers, extract saved output file.
+    # For running containers (e.g. killed), capture live pane.
+    output =
+      case exit_code do
+        :killed -> capture_pane(state.id)
+        :startup_failed -> extra_info || "(startup failed)"
+        _ -> extract_saved_output(state.id)
+      end
 
     status_label =
       case exit_code do

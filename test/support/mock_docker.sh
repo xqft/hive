@@ -48,7 +48,11 @@ case "$1" in
     ;;
 
   cp)
-    # Just succeed
+    # If copying last_output.txt, create the destination file with mock content
+    if [[ "$2" == *"last_output.txt"* ]]; then
+      DEST="$3"
+      echo "mock terminal output" > "$DEST"
+    fi
     exit 0
     ;;
 
