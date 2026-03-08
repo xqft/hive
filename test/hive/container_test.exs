@@ -255,25 +255,14 @@ defmodule Hive.ContainerTest do
   # --------------------------------------------------------------------------
 
   describe "validation" do
-    test "rejects empty task" do
+    test "starts container with no task (defaults to Interactive session)" do
       use_mock_docker()
 
-      assert {:error, "task is required"} =
-               Hive.Container.start("container-test-agent", %{"task" => ""})
-    end
-
-    test "rejects missing task key" do
-      use_mock_docker()
-
-      assert {:error, "task is required"} =
+      assert {:ok, container_id} =
                Hive.Container.start("container-test-agent", %{})
-    end
 
-    test "rejects whitespace-only task" do
-      use_mock_docker()
-
-      assert {:error, "task is required"} =
-               Hive.Container.start("container-test-agent", %{"task" => "   "})
+      assert_receive {:started, "container-test-agent", ^container_id, "Interactive session"}, 2_000
+      assert_receive {:stopped, ^container_id, :completed}, 2_000
     end
 
     test "rejects timeout_minutes below minimum (1)" do

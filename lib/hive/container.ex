@@ -56,7 +56,7 @@ defmodule Hive.Container do
     else
       container_id = "hive-#{agent_name}-#{:erlang.unique_integer([:positive])}"
 
-      with :ok <- validate_execution(task_input, timeout_ms),
+      with :ok <- validate_execution(task_input),
            {:ok, resolved_timeout_ms} <- resolve_timeout_ms(task_input, timeout_ms) do
         case DynamicSupervisor.start_child(
                Hive.ContainerSup,
@@ -80,9 +80,8 @@ defmodule Hive.Container do
   @doc """
   Validate a container execution request before attempting to launch it.
   """
-  def validate_execution(task_input, default_timeout_ms \\ @default_timeout_ms) do
-    with :ok <- validate_task(task_input),
-         {:ok, _timeout_ms} <- resolve_timeout_ms(task_input, default_timeout_ms),
+  def validate_execution(task_input) do
+    with {:ok, _timeout_ms} <- resolve_timeout_ms(task_input, @default_timeout_ms),
          :ok <- validate_docker_available(),
          :ok <- validate_image_available(),
          :ok <- validate_api_key() do
@@ -264,7 +263,7 @@ defmodule Hive.Container do
     task_input = Keyword.fetch!(opts, :task_input)
     timeout_ms = Keyword.fetch!(opts, :timeout_ms)
 
-    task = task_input["task"] || "No task description provided"
+    task = task_input["task"] || "Interactive session"
 
     state = %__MODULE__{
       id: id,
@@ -419,11 +418,9 @@ defmodule Hive.Container do
 
   defp launch_detached_container(state) do
     docker = docker_executable()
-    prompt = build_prompt(state.task_input)
-
     env_args = auth_env_args()
 
-    # Step 1: Start container in detached mode with tmux entrypoint
+    # Start container in detached mode with tmux entrypoint
     docker_args =
       ["run", "-d", "--name", state.id] ++
         env_args ++
@@ -431,37 +428,10 @@ defmodule Hive.Container do
 
     case System.cmd(docker, docker_args, stderr_to_stdout: true) do
       {_, 0} ->
-        # Step 2: Wait for tmux session to be ready
+        # Wait for tmux session to be ready
         wait_for_tmux(docker, state.id)
 
-        # Step 3: Write prompt to temp file and copy into container
-        tmp = "/tmp/#{state.id}_task.txt"
-        File.write!(tmp, prompt)
-
-        case System.cmd(docker, ["cp", tmp, "#{state.id}:/tmp/task.txt"],
-               stderr_to_stdout: true
-             ) do
-          {_, 0} -> :ok
-          {cp_out, _} -> Logger.warning("docker cp failed for #{state.id}: #{String.trim(cp_out)}")
-        end
-
-        File.rm(tmp)
-
-        # Step 4: Launch Claude Code in the tmux session
-        claude_cmd =
-          "claude --dangerously-skip-permissions --output-format json " <>
-            "--settings '{\"effortLevel\":\"max\"}' -p \"$(cat /tmp/task.txt)\""
-
-        case System.cmd(
-               docker,
-               ["exec", state.id, "tmux", "send-keys", "-t", "main", claude_cmd, "Enter"],
-               stderr_to_stdout: true
-             ) do
-          {_, 0} -> :ok
-          {exec_out, _} -> Logger.warning("tmux send-keys failed for #{state.id}: #{String.trim(exec_out)}")
-        end
-
-        # Step 5: Monitor container exit in background
+        # Monitor container exit in background
         self_pid = self()
 
         Task.start(fn ->
@@ -494,37 +464,6 @@ defmodule Hive.Container do
         Logger.warning("tmux session not ready after timeout for #{container_id}")
         :timeout
     end
-  end
-
-  defp build_prompt(task_input) do
-    parts =
-      [
-        {"Task", task_input["task"]},
-        {"Repository", task_input["repo"]},
-        {"Files", task_input["files"]},
-        {"Context", task_input["context"]}
-      ]
-      |> Enum.reject(fn {_label, value} -> is_nil(value) or value == "" end)
-      |> Enum.map(fn {label, value} -> "## #{label}\n#{value}" end)
-
-    body = Enum.join(parts, "\n\n")
-
-    """
-    You are a coding agent running inside a tmux session in an isolated Docker container.
-
-    - Use Claude Code for coding and agentic tasks (it's available as `claude` CLI)
-    - You can create new tmux windows: Ctrl-b c (or via the container_new_window tool)
-    - You can switch windows: Ctrl-b <number>
-    - You can run any shell command in additional windows
-    - A human may be watching your terminal and can send steering inputs
-    - Your main task runs in window 0
-
-    Complete the task below, then provide a concise summary of what you did and any issues encountered.
-
-    #{body}
-
-    When finished, output a summary of your work.
-    """
   end
 
   # Capture tmux pane from a running container via docker exec
@@ -660,16 +599,6 @@ defmodule Hive.Container do
   end
 
   defp normalize_timeout_minutes(_minutes), do: {:error, :invalid_timeout}
-
-  defp validate_task(%{"task" => task}) when is_binary(task) do
-    if String.trim(task) == "" do
-      {:error, "task is required"}
-    else
-      :ok
-    end
-  end
-
-  defp validate_task(_task_input), do: {:error, "task is required"}
 
   defp validate_docker_available do
     case Application.get_env(:hive, :container_docker_available) do

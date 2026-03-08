@@ -211,7 +211,7 @@ defmodule HiveWeb.ToolsController do
   defp execute_tool(agent, "execute_in_container", params) do
     case Hive.Container.start(agent, params) do
       {:ok, container_id} ->
-        {:ok, "Container #{container_id} launched. You'll be notified when it completes."}
+        {:ok, "Container #{container_id} launched with an empty bash shell. Use send_to_container to run commands."}
 
       {:error, msg} ->
         {:error, msg}

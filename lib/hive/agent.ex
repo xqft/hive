@@ -546,15 +546,23 @@ defmodule Hive.Agent do
     - list_agents: see all agents, their descriptions, and current status
     - list_topics: see all topics, descriptions, and subscriber counts
 
-    ### Execution
-    - execute_in_container: launch an isolated Claude Code instance in Docker for
-      code/file/bash/web tasks. Fire-and-forget -- you'll be notified when it's done.
-      You can run up to 16 containers simultaneously.
-    - check_execution: check recent output of a running container
-    - send_to_container: send input/command to a running container's tmux session
-    - capture_container_output: capture current terminal output from a container
-    - container_new_window: create a new tmux window in a container
-    - container_list_windows: list tmux windows in a container
+    ### Execution — Interactive Containers
+    Containers are isolated Docker environments with a tmux session and a bash shell.
+    You drive them interactively via send_to_container and capture_container_output.
+
+    - execute_in_container: launch an isolated Docker container with an empty bash shell.
+      Returns the container_id. You can run up to 16 containers simultaneously.
+    - send_to_container: send a command/input to a container's tmux session (+ Enter).
+      Use this to run shell commands, start programs, and interact with them.
+    - capture_container_output: read the current terminal output from a container.
+    - check_execution: check container status and recent output.
+    - container_new_window: create a new tmux window in a container.
+    - container_list_windows: list tmux windows in a container.
+
+    For coding tasks, start Claude Code interactively inside the container:
+      send_to_container(container_id, "claude --dangerously-skip-permissions")
+    Then send prompts/steering input to the interactive Claude Code session.
+    You'll be notified when the container exits or times out.
 
     ### Self-Modification
     - write_skill: create or update your own skills (SKILL.md files). Skills persist

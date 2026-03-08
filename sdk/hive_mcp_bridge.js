@@ -45,24 +45,21 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {} }},
   { name: "list_topics", description: "List all topics with descriptions and subscriber counts",
     inputSchema: { type: "object", properties: {} }},
-  { name: "execute_in_container", description: "Launch isolated Claude Code in Docker for code/file/bash/web tasks. Fire-and-forget — you'll be notified when done.",
+  { name: "execute_in_container", description: "Launch an isolated Docker container with a bash shell in a tmux session. Use send_to_container to run commands interactively. For coding tasks, start Claude Code with: send_to_container(id, 'claude --dangerously-skip-permissions'). You'll be notified when the container exits or times out.",
     inputSchema: { type: "object", properties: {
-      task: { type: "string", description: "Task description" },
-      repo: { type: "string", description: "Git repo URL to clone" },
-      files: { type: "string", description: "Relevant files to focus on" },
-      context: { type: "string", description: "Additional context" },
-      timeout_minutes: { type: "number", description: "Timeout in minutes (default 10)" }
-    }, required: ["task"] }},
-  { name: "check_execution", description: "Check recent output of a running container",
+      task: { type: "string", description: "Optional label describing what this container is for (for tracking)" },
+      timeout_minutes: { type: "number", description: "Timeout in minutes (default 10, max 60)" }
+    } }},
+  { name: "check_execution", description: "Check container status and recent terminal output",
     inputSchema: { type: "object", properties: {
       container_id: { type: "string" }
     }, required: ["container_id"] }},
-  { name: "send_to_container", description: "Send input/command to a container's tmux session (followed by Enter)",
+  { name: "send_to_container", description: "Send a command or input to a container's tmux session (followed by Enter). Use this to run shell commands, interact with programs, or send input to an interactive Claude Code session.",
     inputSchema: { type: "object", properties: {
       container_id: { type: "string", description: "Container ID" },
       input: { type: "string", description: "Text to send (followed by Enter)" }
     }, required: ["container_id", "input"] }},
-  { name: "capture_container_output", description: "Capture current terminal output from a container's tmux session",
+  { name: "capture_container_output", description: "Capture the current terminal output from a container's tmux session. Use to check what's on screen.",
     inputSchema: { type: "object", properties: {
       container_id: { type: "string", description: "Container ID" }
     }, required: ["container_id"] }},
