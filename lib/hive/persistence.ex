@@ -557,77 +557,61 @@ defmodule Hive.Persistence do
       """)
   end
 
-  defp namespace_taken?(conn, name) do
-    {:ok, stmt} =
-      Sqlite3.prepare(
-        conn,
-        "SELECT 1 FROM agents WHERE name = ?1 UNION SELECT 1 FROM topics WHERE name = ?1 LIMIT 1"
-      )
-
-    :ok = Sqlite3.bind(stmt, [name])
-
-    result =
-      case Sqlite3.step(conn, stmt) do
-        {:row, _} -> true
-        :done -> false
-        :busy -> true
-      end
-
-    Sqlite3.release(conn, stmt)
-    result
-  end
-
-  defp exec_write(conn, sql, params) do
+  defp with_statement(conn, sql, params, fun) do
     {:ok, stmt} = Sqlite3.prepare(conn, sql)
     :ok = Sqlite3.bind(stmt, params)
 
-    result =
+    try do
+      fun.(stmt)
+    after
+      Sqlite3.release(conn, stmt)
+    end
+  end
+
+  defp namespace_taken?(conn, name) do
+    with_statement(
+      conn,
+      "SELECT 1 FROM agents WHERE name = ?1 UNION SELECT 1 FROM topics WHERE name = ?1 LIMIT 1",
+      [name],
+      fn stmt ->
+        case Sqlite3.step(conn, stmt) do
+          {:row, _} -> true
+          :done -> false
+          :busy -> true
+        end
+      end
+    )
+  end
+
+  defp exec_write(conn, sql, params) do
+    with_statement(conn, sql, params, fn stmt ->
       case Sqlite3.step(conn, stmt) do
         :done -> :ok
         {:error, reason} -> {:error, reason}
         :busy -> {:error, :busy}
         {:row, _} -> :ok
       end
-
-    Sqlite3.release(conn, stmt)
-    result
+    end)
   end
 
   defp query_all(conn, sql, params, columns) do
-    {:ok, stmt} = Sqlite3.prepare(conn, sql)
-
-    if params != [] do
-      :ok = Sqlite3.bind(stmt, params)
-    end
-
-    case Sqlite3.fetch_all(conn, stmt) do
-      {:ok, rows} ->
-        Sqlite3.release(conn, stmt)
-        {:ok, Enum.map(rows, fn row -> row_to_map(row, columns) end)}
-
-      {:error, reason} ->
-        Sqlite3.release(conn, stmt)
-        {:error, reason}
-    end
+    with_statement(conn, sql, params, fn stmt ->
+      case Sqlite3.fetch_all(conn, stmt) do
+        {:ok, rows} -> {:ok, Enum.map(rows, fn row -> row_to_map(row, columns) end)}
+        {:error, reason} -> {:error, reason}
+      end
+    end)
   end
 
   defp query_one(conn, sql, params, columns) do
-    {:ok, stmt} = Sqlite3.prepare(conn, sql)
-
-    if params != [] do
-      :ok = Sqlite3.bind(stmt, params)
-    end
-
-    result =
+    with_statement(conn, sql, params, fn stmt ->
       case Sqlite3.step(conn, stmt) do
         {:row, row} -> {:ok, row_to_map(row, columns)}
         :done -> {:ok, nil}
         :busy -> {:error, :busy}
         {:error, reason} -> {:error, reason}
       end
-
-    Sqlite3.release(conn, stmt)
-    result
+    end)
   end
 
   defp row_to_map(row, columns) do
