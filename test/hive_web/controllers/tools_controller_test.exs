@@ -486,13 +486,13 @@ defmodule HiveWeb.ToolsControllerTest do
       :ok
     end
 
-    test "rejects missing task text", %{conn: conn} do
+    test "accepts empty task as interactive session", %{conn: conn} do
       body =
         conn
         |> tool_call("test-agent", "execute_in_container", %{"task" => "   "})
         |> json_response(200)
 
-      assert body == %{"ok" => false, "error" => "task is required"}
+      assert body["ok"] == true
     end
 
     test "rejects timeout outside allowed bounds", %{conn: conn} do

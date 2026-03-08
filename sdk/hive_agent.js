@@ -36,6 +36,7 @@ async function processNext(batch) {
       "mcp__hive__execute_in_container", "mcp__hive__check_execution",
       "mcp__hive__send_to_container", "mcp__hive__capture_container_output",
       "mcp__hive__container_new_window", "mcp__hive__container_list_windows",
+      "mcp__hive__container_split_pane", "mcp__hive__container_list_panes",
       "mcp__hive__write_skill", "mcp__hive__read_skill", "mcp__hive__delete_skill",
       "mcp__hive__write_claude_md"
     ];

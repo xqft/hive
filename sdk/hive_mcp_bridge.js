@@ -54,17 +54,20 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {
       container_id: { type: "string" }
     }, required: ["container_id"] }},
-  { name: "send_to_container", description: "Send input to a container's tmux session. Use 'input' for shell commands (auto-appends Enter). Use 'keys' for raw key sequences (e.g. 'Enter', 'C-c', 'Up', 'Down'). Can target specific tmux windows.",
+  { name: "send_to_container", description: "Send input to a container's tmux session and return terminal output. Use 'input' for shell commands (auto-appends Enter). Use 'keys' for raw key sequences (e.g. 'Enter', 'C-c', 'Up', 'Down'). Returns captured pane output after wait_ms delay (default 1000ms). No need to call capture_container_output separately.",
     inputSchema: { type: "object", properties: {
       container_id: { type: "string", description: "Container ID" },
       input: { type: "string", description: "Text to type followed by Enter (for shell commands)" },
       keys: { type: "string", description: "Raw tmux key names, space-separated (e.g. 'Enter', 'C-c', 'Up Up Enter'). Use for TUI navigation." },
-      window: { type: "string", description: "Target tmux window index (default '0')" }
+      window: { type: "string", description: "Target tmux window index (default '0')" },
+      pane: { type: "string", description: "Target tmux pane index within the window (e.g. '0', '1')" },
+      wait_ms: { type: "number", description: "Milliseconds to wait before capturing output (default 1000, max 10000). Set to 0 to skip capture." }
     }, required: ["container_id"] }},
   { name: "capture_container_output", description: "Capture the current terminal output from a container's tmux session. Use to check what's on screen.",
     inputSchema: { type: "object", properties: {
       container_id: { type: "string", description: "Container ID" },
-      window: { type: "string", description: "Target tmux window index (default '0')" }
+      window: { type: "string", description: "Target tmux window index (default '0')" },
+      pane: { type: "string", description: "Target tmux pane index within the window (e.g. '0', '1')" }
     }, required: ["container_id"] }},
   { name: "container_new_window", description: "Create a new tmux window in a container",
     inputSchema: { type: "object", properties: {
@@ -75,6 +78,18 @@ const TOOLS = [
   { name: "container_list_windows", description: "List tmux windows in a container",
     inputSchema: { type: "object", properties: {
       container_id: { type: "string", description: "Container ID" }
+    }, required: ["container_id"] }},
+  { name: "container_split_pane", description: "Split a tmux pane in a container. Creates a new pane by splitting an existing one.",
+    inputSchema: { type: "object", properties: {
+      container_id: { type: "string", description: "Container ID" },
+      direction: { type: "string", enum: ["horizontal", "vertical"], description: "Split direction (default 'vertical')" },
+      window: { type: "string", description: "Target tmux window index (default '0')" },
+      command: { type: "string", description: "Command to run in the new pane" }
+    }, required: ["container_id"] }},
+  { name: "container_list_panes", description: "List tmux panes in a container window. Returns pane index, dimensions, and active status.",
+    inputSchema: { type: "object", properties: {
+      container_id: { type: "string", description: "Container ID" },
+      window: { type: "string", description: "Target tmux window index (default '0')" }
     }, required: ["container_id"] }},
   { name: "write_skill", description: "Create or update one of your own skills (SKILL.md files). Skills define knowledge and capabilities that persist across conversations.",
     inputSchema: { type: "object", properties: {

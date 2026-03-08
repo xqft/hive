@@ -18,6 +18,7 @@ defmodule HiveWeb.ToolsController do
     execute_in_container check_execution
     send_to_container capture_container_output
     container_new_window container_list_windows
+    container_split_pane container_list_panes
     write_skill read_skill delete_skill write_claude_md
   )
 
@@ -227,7 +228,7 @@ defmodule HiveWeb.ToolsController do
   end
 
   defp execute_tool(_agent, "capture_container_output", %{"container_id" => id} = params) do
-    Hive.Container.capture_output(id, Map.get(params, "window", "0"))
+    Hive.Container.capture_output(id, params)
   end
 
   defp execute_tool(_agent, "container_new_window", %{"container_id" => id, "name" => name} = params) do
@@ -236,6 +237,19 @@ defmodule HiveWeb.ToolsController do
 
   defp execute_tool(_agent, "container_list_windows", %{"container_id" => id}) do
     Hive.Container.list_windows(id)
+  end
+
+  defp execute_tool(_agent, "container_split_pane", %{"container_id" => id} = params) do
+    Hive.Container.split_pane(
+      id,
+      Map.get(params, "direction", "vertical"),
+      Map.get(params, "window", "0"),
+      params["command"]
+    )
+  end
+
+  defp execute_tool(_agent, "container_list_panes", %{"container_id" => id} = params) do
+    Hive.Container.list_panes(id, Map.get(params, "window", "0"))
   end
 
   defp execute_tool(agent, "write_skill", %{"name" => name, "content" => content}) do

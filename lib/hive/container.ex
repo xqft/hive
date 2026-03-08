@@ -120,19 +120,38 @@ defmodule Hive.Container do
 
   Provide `input` for commands, `keys` for TUI interaction. If both given,
   `input` is sent as literal text then `keys` are sent as key names.
+
+  Use `pane` to target a specific pane within a window (e.g. "1" for pane 1).
+
+  After sending input, waits `wait_ms` (default 1000, max 10000) then captures
+  and returns the pane output. Set to 0 to skip capture and return immediately.
   """
   def send_input(container_id, opts) when is_map(opts) do
     case Registry.lookup(Hive.ContainerRegistry, container_id) do
       [{_pid, _}] ->
         docker = docker_executable()
-        window = Map.get(opts, "window", "0")
-        target = "main:#{window}"
+        target = build_target(opts)
         input = Map.get(opts, "input")
         keys = Map.get(opts, "keys")
+        wait_ms = normalize_wait_ms(Map.get(opts, "wait_ms", 1000))
 
         case exec_send_keys(docker, container_id, target, input, keys) do
-          {_, 0} -> {:ok, "Input sent to container #{container_id}"}
-          {output, _} -> {:error, "Failed to send input: #{String.trim(output)}"}
+          {_, 0} ->
+            if wait_ms > 0 do
+              Process.sleep(wait_ms)
+
+              case System.cmd(docker, [
+                     "exec", container_id, "tmux", "capture-pane", "-p", "-S", "-", "-t", target
+                   ], stderr_to_stdout: true) do
+                {output, 0} -> {:ok, output}
+                _ -> {:ok, "Input sent (output capture failed)"}
+              end
+            else
+              {:ok, "Input sent"}
+            end
+
+          {output, _} ->
+            {:error, "Failed to send input: #{String.trim(output)}"}
         end
 
       [] ->
@@ -151,11 +170,11 @@ defmodule Hive.Container do
   Options:
     - `window` — target window index (default "0")
   """
-  def capture_output(container_id, window \\ "0") do
+  def capture_output(container_id, opts \\ %{}) do
     case Registry.lookup(Hive.ContainerRegistry, container_id) do
       [{_pid, _}] ->
         docker = docker_executable()
-        target = "main:#{window}"
+        target = build_target(opts)
 
         case System.cmd(docker, [
                "exec", container_id, "tmux", "capture-pane", "-p", "-S", "-", "-t", target
@@ -183,6 +202,57 @@ defmodule Hive.Container do
              ], stderr_to_stdout: true) do
           {output, 0} -> {:ok, String.trim(output)}
           {output, _} -> {:error, "Failed to list windows: #{String.trim(output)}"}
+        end
+
+      [] ->
+        {:error, "Container #{container_id} not found"}
+    end
+  end
+
+  @doc """
+  Split a tmux pane in a container's session.
+
+  Options:
+    - `direction` — "horizontal" or "vertical" (default "vertical")
+    - `window` — target window index (default "0")
+    - `command` — optional command to run in the new pane
+  """
+  def split_pane(container_id, direction \\ "vertical", window \\ "0", command \\ nil) do
+    case Registry.lookup(Hive.ContainerRegistry, container_id) do
+      [{_pid, _}] ->
+        docker = docker_executable()
+        flag = if direction == "horizontal", do: "-h", else: "-v"
+        target = "main:#{window}"
+
+        args =
+          ["exec", container_id, "tmux", "split-window", flag, "-t", target] ++
+            if(command, do: [command], else: [])
+
+        case System.cmd(docker, args, stderr_to_stdout: true) do
+          {_, 0} -> {:ok, "Pane split #{direction}ly in window #{window}"}
+          {output, _} -> {:error, "Failed to split pane: #{String.trim(output)}"}
+        end
+
+      [] ->
+        {:error, "Container #{container_id} not found"}
+    end
+  end
+
+  @doc """
+  List tmux panes in a container's window.
+  """
+  def list_panes(container_id, window \\ "0") do
+    case Registry.lookup(Hive.ContainerRegistry, container_id) do
+      [{_pid, _}] ->
+        docker = docker_executable()
+        target = "main:#{window}"
+
+        case System.cmd(docker, [
+               "exec", container_id, "tmux", "list-panes", "-t", target,
+               "-F", "\#{pane_index}:\#{pane_width}x\#{pane_height}:\#{pane_active}"
+             ], stderr_to_stdout: true) do
+          {output, 0} -> {:ok, String.trim(output)}
+          {output, _} -> {:error, "Failed to list panes: #{String.trim(output)}"}
         end
 
       [] ->
@@ -430,6 +500,19 @@ defmodule Hive.Container do
   # ---------------------------------------------------------------------------
   # Private helpers
   # ---------------------------------------------------------------------------
+
+  defp normalize_wait_ms(ms) when is_number(ms), do: ms |> trunc() |> max(0) |> min(10_000)
+  defp normalize_wait_ms(_), do: 1000
+
+  # Build a tmux target from opts: main:{window} or main:{window}.{pane}
+  defp build_target(opts) when is_map(opts) do
+    window = Map.get(opts, "window", "0")
+    pane = Map.get(opts, "pane")
+
+    if pane, do: "main:#{window}.#{pane}", else: "main:#{window}"
+  end
+
+  defp build_target(window) when is_binary(window), do: "main:#{window}"
 
   defp via(id, agent_name) do
     {:via, Registry, {Hive.ContainerRegistry, id, agent_name}}

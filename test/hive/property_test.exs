@@ -358,17 +358,10 @@ defmodule Hive.PropertyTest do
       end
     end
 
-    property "empty task is rejected regardless of timeout" do
+    property "empty or missing task is accepted (defaults to interactive session)" do
       check all(minutes <- one_of([constant(nil), integer(1..60)])) do
-        task_input = %{"task" => "", "timeout_minutes" => minutes}
-        assert {:error, "task is required"} = Hive.Container.validate_execution(task_input)
-      end
-    end
-
-    property "missing task key is rejected" do
-      check all(minutes <- one_of([constant(nil), integer(1..60)])) do
-        task_input = %{"timeout_minutes" => minutes}
-        assert {:error, "task is required"} = Hive.Container.validate_execution(task_input)
+        assert :ok = Hive.Container.validate_execution(%{"task" => "", "timeout_minutes" => minutes})
+        assert :ok = Hive.Container.validate_execution(%{"timeout_minutes" => minutes})
       end
     end
   end
