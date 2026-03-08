@@ -256,11 +256,9 @@ defmodule Hive.Topic do
       |> Enum.uniq()
 
     Enum.reduce(mentioned, state, fn agent_name, acc ->
-      if MapSet.member?(acc.subscribers, agent_name) do
-        acc
-      else
-        {acc, _joined?} = add_subscriber(acc, agent_name)
+      {acc, joined?} = add_subscriber(acc, agent_name)
 
+      if joined? do
         safe_broadcast(
           "topic:#{acc.name}",
           {:member_joined, %{topic: acc.name, agent: agent_name, ts: DateTime.utc_now()}}
@@ -270,15 +268,12 @@ defmodule Hive.Topic do
         context = Enum.take(acc.messages, 5)
 
         case Registry.lookup(Hive.AgentRegistry, agent_name) do
-          [{pid, _}] ->
-            send(pid, {:mention_invite, acc.name, context})
-
-          [] ->
-            :ok
+          [{pid, _}] -> send(pid, {:mention_invite, acc.name, context})
+          [] -> :ok
         end
-
-        acc
       end
+
+      acc
     end)
   end
 
