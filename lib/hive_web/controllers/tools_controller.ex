@@ -21,6 +21,7 @@ defmodule HiveWeb.ToolsController do
     container_split_pane container_list_panes
     write_skill read_skill delete_skill write_claude_md
     upload_media extract_container_file view_image
+    create_event_source list_event_sources delete_event_source
   )
 
   def call_tool(conn, %{"agent" => agent, "tool" => tool, "params" => params}) do
@@ -319,6 +320,82 @@ defmodule HiveWeb.ToolsController do
       end
     else
       {:error, "only /uploads/ URLs are supported"}
+    end
+  end
+
+  defp execute_tool(_agent, "create_event_source", params) do
+    name = params["name"]
+    type = params["type"]
+    topic = params["topic"]
+    config = params["config"] || %{}
+
+    with :ok <- Hive.Validation.validate_name(name) do
+      config_json = if is_binary(config), do: config, else: Jason.encode!(config)
+
+      webhook_secret =
+        if type == "webhook" do
+          :crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false)
+        end
+
+      attrs = %{
+        type: type,
+        topic: topic,
+        config: config_json,
+        webhook_secret: webhook_secret,
+        mcp_server: params["mcp_server"],
+        enabled: 1
+      }
+
+      case Hive.Persistence.create_event_source(name, attrs) do
+        :ok ->
+          # Start if poll type
+          if type == "poll" do
+            DynamicSupervisor.start_child(
+              Hive.EventSourceSup,
+              {Hive.Connector.EventSource,
+               [
+                 name: name,
+                 type: type,
+                 topic: topic,
+                 config: config_json,
+                 enabled: 1
+               ]}
+            )
+          end
+
+          result = %{name: name, type: type, topic: topic}
+
+          result =
+            if webhook_secret,
+              do: Map.put(result, :webhook_url, "/api/hooks/#{name}/#{webhook_secret}"),
+              else: result
+
+          {:ok, Jason.encode!(result)}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp execute_tool(_agent, "list_event_sources", _params) do
+    case Hive.Persistence.get_event_sources() do
+      {:ok, sources} -> {:ok, Jason.encode!(sources)}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp execute_tool(_agent, "delete_event_source", %{"name" => name}) do
+    # Stop GenServer if running
+    try do
+      Hive.Connector.EventSource.stop(name)
+    catch
+      :exit, _ -> :ok
+    end
+
+    case Hive.Persistence.delete_event_source(name) do
+      :ok -> {:ok, "Event source '#{name}' deleted"}
+      {:error, reason} -> {:error, reason}
     end
   end
 

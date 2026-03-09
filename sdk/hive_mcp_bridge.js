@@ -122,6 +122,20 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {
       url: { type: "string", description: "Image URL (e.g. /uploads/abc.png)" }
     }, required: ["url"] }},
+  { name: "create_event_source", description: "Create an event source that posts external events to a topic. Webhook type returns a URL to POST events to. Poll type runs a command periodically.",
+    inputSchema: { type: "object", properties: {
+      name: { type: "string", description: "Event source name" },
+      type: { type: "string", enum: ["webhook", "poll"], description: "Event source type" },
+      topic: { type: "string", description: "Target topic for events" },
+      config: { type: "object", description: "For poll: {command, args, interval_ms}" },
+      mcp_server: { type: "string", description: "Optional linked MCP server name" }
+    }, required: ["name", "type", "topic"] }},
+  { name: "list_event_sources", description: "List all event sources",
+    inputSchema: { type: "object", properties: {} }},
+  { name: "delete_event_source", description: "Delete an event source and stop its polling",
+    inputSchema: { type: "object", properties: {
+      name: { type: "string", description: "Event source name to delete" }
+    }, required: ["name"] }},
 ];
 
 const server = new Server({ name: "hive", version: "1.0.0" }, {

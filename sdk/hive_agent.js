@@ -39,7 +39,8 @@ async function processNext(batch) {
       "mcp__hive__container_split_pane", "mcp__hive__container_list_panes",
       "mcp__hive__write_skill", "mcp__hive__read_skill", "mcp__hive__delete_skill",
       "mcp__hive__write_claude_md",
-      "mcp__hive__upload_media", "mcp__hive__extract_container_file", "mcp__hive__view_image"
+      "mcp__hive__upload_media", "mcp__hive__extract_container_file", "mcp__hive__view_image",
+      "mcp__hive__create_event_source", "mcp__hive__list_event_sources", "mcp__hive__delete_event_source"
     ];
 
     const extraToolPatterns = [];

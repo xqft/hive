@@ -162,7 +162,9 @@ defmodule HiveWeb.ToolsControllerTest do
         upload_media extract_container_file view_image
       )
 
-      for tool <- known_tools do
+      event_source_tools = ~w(create_event_source list_event_sources delete_event_source)
+
+      for tool <- known_tools ++ event_source_tools do
         result =
           try do
             test_conn =
@@ -826,6 +828,153 @@ defmodule HiveWeb.ToolsControllerTest do
 
       assert body["ok"] == false
       assert body["error"] =~ "only /uploads/"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Event source tools
+  # ---------------------------------------------------------------------------
+
+  defp cleanup_event_source(name) do
+    on_exit(fn ->
+      Hive.Persistence.delete_event_source(name)
+    end)
+  end
+
+  describe "create_event_source" do
+    test "creates a webhook event source and returns webhook URL", %{conn: conn} do
+      name = unique("es-webhook")
+      topic = unique("es-topic")
+      :ok = Hive.Persistence.create_topic(topic, "test", "topic", nil)
+      cleanup_event_source(name)
+      cleanup_topic(topic)
+
+      body =
+        conn
+        |> tool_call("test-agent", "create_event_source", %{
+          "name" => name,
+          "type" => "webhook",
+          "topic" => topic
+        })
+        |> json_response(200)
+
+      assert body["ok"] == true
+      result = Jason.decode!(body["result"])
+      assert result["name"] == name
+      assert result["type"] == "webhook"
+      assert result["topic"] == topic
+      assert result["webhook_url"] =~ "/api/hooks/#{name}/"
+
+      # Verify persisted
+      {:ok, source} = Hive.Persistence.get_event_source(name)
+      assert source.name == name
+      assert source.type == "webhook"
+      assert source.webhook_secret != nil
+    end
+
+    test "creates a poll event source without webhook URL", %{conn: conn} do
+      name = unique("es-poll")
+      topic = unique("es-poll-t")
+      :ok = Hive.Persistence.create_topic(topic, "test", "topic", nil)
+      cleanup_event_source(name)
+      cleanup_topic(topic)
+
+      body =
+        conn
+        |> tool_call("test-agent", "create_event_source", %{
+          "name" => name,
+          "type" => "poll",
+          "topic" => topic,
+          "config" => %{"command" => "echo", "args" => ["hello"], "interval_ms" => 60_000}
+        })
+        |> json_response(200)
+
+      assert body["ok"] == true
+      result = Jason.decode!(body["result"])
+      assert result["name"] == name
+      assert result["type"] == "poll"
+      refute Map.has_key?(result, "webhook_url")
+    end
+
+    test "rejects invalid name", %{conn: conn} do
+      body =
+        conn
+        |> tool_call("test-agent", "create_event_source", %{
+          "name" => "../bad",
+          "type" => "webhook",
+          "topic" => "test-topic"
+        })
+        |> json_response(200)
+
+      assert body["ok"] == false
+      assert body["error"] =~ "invalid_name"
+    end
+  end
+
+  describe "list_event_sources" do
+    test "returns all event sources", %{conn: conn} do
+      name1 = unique("es-list1")
+      name2 = unique("es-list2")
+      topic = unique("es-list-t")
+      :ok = Hive.Persistence.create_topic(topic, "test", "topic", nil)
+      cleanup_topic(topic)
+
+      :ok =
+        Hive.Persistence.create_event_source(name1, %{
+          type: "webhook",
+          topic: topic,
+          webhook_secret: "s1",
+          enabled: 1
+        })
+
+      :ok =
+        Hive.Persistence.create_event_source(name2, %{
+          type: "poll",
+          topic: topic,
+          enabled: 1
+        })
+
+      cleanup_event_source(name1)
+      cleanup_event_source(name2)
+
+      body =
+        conn
+        |> tool_call("test-agent", "list_event_sources", %{})
+        |> json_response(200)
+
+      assert body["ok"] == true
+      sources = Jason.decode!(body["result"])
+      names = Enum.map(sources, & &1["name"])
+      assert name1 in names
+      assert name2 in names
+    end
+  end
+
+  describe "delete_event_source" do
+    test "deletes an existing event source", %{conn: conn} do
+      name = unique("es-del")
+      topic = unique("es-del-t")
+      :ok = Hive.Persistence.create_topic(topic, "test", "topic", nil)
+      cleanup_topic(topic)
+
+      :ok =
+        Hive.Persistence.create_event_source(name, %{
+          type: "webhook",
+          topic: topic,
+          webhook_secret: "s1",
+          enabled: 1
+        })
+
+      body =
+        conn
+        |> tool_call("test-agent", "delete_event_source", %{"name" => name})
+        |> json_response(200)
+
+      assert body["ok"] == true
+      assert body["result"] =~ "deleted"
+
+      # Verify removed from persistence
+      {:ok, nil} = Hive.Persistence.get_event_source(name)
     end
   end
 end
