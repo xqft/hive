@@ -85,7 +85,14 @@ defmodule HiveWeb.ChatLive do
             <section class="ui-stack">
               <div class="ui-section-row">
                 <p class="ui-section-label">Topics</p>
-                <.button variant="ghost" size="sm" phx-click="toggle_create_topic" aria-label="New topic"><.icon name="hero-plus" class="size-4" /></.button>
+                <.button
+                  variant="ghost"
+                  size="sm"
+                  phx-click="toggle_create_topic"
+                  aria-label="New topic"
+                >
+                  <.icon name="hero-plus" class="size-4" />
+                </.button>
               </div>
 
               <div :if={@show_create_topic} class="ui-card">
@@ -143,7 +150,9 @@ defmodule HiveWeb.ChatLive do
             <section class="ui-stack">
               <div class="ui-section-row">
                 <p class="ui-section-label">Direct messages</p>
-                <.button variant="ghost" size="sm" phx-click="toggle_new_dm" aria-label="New DM"><.icon name="hero-plus" class="size-4" /></.button>
+                <.button variant="ghost" size="sm" phx-click="toggle_new_dm" aria-label="New DM">
+                  <.icon name="hero-plus" class="size-4" />
+                </.button>
               </div>
 
               <div :if={@show_new_dm} class="ui-card ui-stack">
@@ -196,11 +205,28 @@ defmodule HiveWeb.ChatLive do
                 <h2 class="ui-chat-panel__title">{active_topic_label(@active_topic)}</h2>
 
                 <div class="flex items-center gap-2">
-                  <button type="button" phx-click="toggle_aside" phx-value-tab="containers" :if={@containers != []} class={["ui-chat-meta ui-chat-meta--btn", @aside_open && @aside_tab == "containers" && "is-active"]}>
+                  <button
+                    :if={@containers != []}
+                    type="button"
+                    phx-click="toggle_aside"
+                    phx-value-tab="containers"
+                    class={[
+                      "ui-chat-meta ui-chat-meta--btn",
+                      @aside_open && @aside_tab == "containers" && "is-active"
+                    ]}
+                  >
                     <.icon name="hero-cube" class="size-4" />
                     <span>{length(@containers)}</span>
                   </button>
-                  <button type="button" phx-click="toggle_aside" phx-value-tab="members" class={["ui-chat-meta ui-chat-meta--btn", @aside_open && @aside_tab == "members" && "is-active"]}>
+                  <button
+                    type="button"
+                    phx-click="toggle_aside"
+                    phx-value-tab="members"
+                    class={[
+                      "ui-chat-meta ui-chat-meta--btn",
+                      @aside_open && @aside_tab == "members" && "is-active"
+                    ]}
+                  >
                     <.icon name="hero-user-group" class="size-4" />
                     <span>{length(@members)} members</span>
                   </button>
@@ -290,7 +316,11 @@ defmodule HiveWeb.ChatLive do
                   >
                   </div>
 
-                  <div :if={@uploads.media.entries != []} class="ui-upload-previews" style="padding: 0.5rem 0.95rem 0;">
+                  <div
+                    :if={@uploads.media.entries != []}
+                    class="ui-upload-previews"
+                    style="padding: 0.5rem 0.95rem 0;"
+                  >
                     <div :for={entry <- @uploads.media.entries} class="ui-upload-preview">
                       <.live_img_preview entry={entry} class="ui-upload-preview__thumb" />
                       <button
@@ -319,14 +349,29 @@ defmodule HiveWeb.ChatLive do
             <aside :if={@aside_open} class="ui-chat-aside ui-surface">
               <div class="ui-chat-aside__header">
                 <div class="ui-chat-aside__tabs">
-                  <button type="button" phx-click="switch_aside_tab" phx-value-tab="members" class={["ui-chat-aside__tab", @aside_tab == "members" && "is-active"]}>
+                  <button
+                    type="button"
+                    phx-click="switch_aside_tab"
+                    phx-value-tab="members"
+                    class={["ui-chat-aside__tab", @aside_tab == "members" && "is-active"]}
+                  >
                     Members
                   </button>
-                  <button type="button" phx-click="switch_aside_tab" phx-value-tab="containers" class={["ui-chat-aside__tab", @aside_tab == "containers" && "is-active"]}>
+                  <button
+                    type="button"
+                    phx-click="switch_aside_tab"
+                    phx-value-tab="containers"
+                    class={["ui-chat-aside__tab", @aside_tab == "containers" && "is-active"]}
+                  >
                     Containers
                   </button>
                 </div>
-                <button type="button" phx-click="close_aside" class="ui-chat-aside__close" aria-label="Close">
+                <button
+                  type="button"
+                  phx-click="close_aside"
+                  class="ui-chat-aside__close"
+                  aria-label="Close"
+                >
                   <.icon name="hero-x-mark" class="size-4" />
                 </button>
               </div>
@@ -860,7 +905,10 @@ defmodule HiveWeb.ChatLive do
 
   defp thinking_summary([agent]), do: "#{agent} is thinking"
   defp thinking_summary([first, second]), do: "#{first}, #{second} are thinking"
-  defp thinking_summary([first, second, third]), do: "#{first}, #{second}, and #{third} are thinking"
+
+  defp thinking_summary([first, second, third]),
+    do: "#{first}, #{second}, and #{third} are thinking"
+
   defp thinking_summary(_agents), do: "Several agents are thinking"
 
   defp composer_placeholder(nil), do: "Select a conversation..."

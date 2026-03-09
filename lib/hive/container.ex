@@ -140,9 +140,21 @@ defmodule Hive.Container do
             if wait_ms > 0 do
               Process.sleep(wait_ms)
 
-              case System.cmd(docker, [
-                     "exec", container_id, "tmux", "capture-pane", "-p", "-S", "-", "-t", target
-                   ], stderr_to_stdout: true) do
+              case System.cmd(
+                     docker,
+                     [
+                       "exec",
+                       container_id,
+                       "tmux",
+                       "capture-pane",
+                       "-p",
+                       "-S",
+                       "-",
+                       "-t",
+                       target
+                     ],
+                     stderr_to_stdout: true
+                   ) do
                 {output, 0} -> {:ok, output}
                 _ -> {:ok, "ok"}
               end
@@ -176,9 +188,21 @@ defmodule Hive.Container do
         docker = docker_executable()
         target = build_target(opts)
 
-        case System.cmd(docker, [
-               "exec", container_id, "tmux", "capture-pane", "-p", "-S", "-", "-t", target
-             ], stderr_to_stdout: true) do
+        case System.cmd(
+               docker,
+               [
+                 "exec",
+                 container_id,
+                 "tmux",
+                 "capture-pane",
+                 "-p",
+                 "-S",
+                 "-",
+                 "-t",
+                 target
+               ],
+               stderr_to_stdout: true
+             ) do
           {output, 0} -> {:ok, output}
           {output, _} -> {:error, "Failed to capture output: #{String.trim(output)}"}
         end
@@ -196,10 +220,20 @@ defmodule Hive.Container do
       [{_pid, _}] ->
         docker = docker_executable()
 
-        case System.cmd(docker, [
-               "exec", container_id, "tmux", "list-windows", "-t", "main",
-               "-F", "\#{window_index}:\#{window_name}"
-             ], stderr_to_stdout: true) do
+        case System.cmd(
+               docker,
+               [
+                 "exec",
+                 container_id,
+                 "tmux",
+                 "list-windows",
+                 "-t",
+                 "main",
+                 "-F",
+                 "\#{window_index}:\#{window_name}"
+               ],
+               stderr_to_stdout: true
+             ) do
           {output, 0} -> {:ok, String.trim(output)}
           {output, _} -> {:error, "Failed to list windows: #{String.trim(output)}"}
         end
@@ -247,10 +281,20 @@ defmodule Hive.Container do
         docker = docker_executable()
         target = "main:#{window}"
 
-        case System.cmd(docker, [
-               "exec", container_id, "tmux", "list-panes", "-t", target,
-               "-F", "\#{pane_index}:\#{pane_width}x\#{pane_height}:\#{pane_active}"
-             ], stderr_to_stdout: true) do
+        case System.cmd(
+               docker,
+               [
+                 "exec",
+                 container_id,
+                 "tmux",
+                 "list-panes",
+                 "-t",
+                 target,
+                 "-F",
+                 "\#{pane_index}:\#{pane_width}x\#{pane_height}:\#{pane_active}"
+               ],
+               stderr_to_stdout: true
+             ) do
           {output, 0} -> {:ok, String.trim(output)}
           {output, _} -> {:error, "Failed to list panes: #{String.trim(output)}"}
         end

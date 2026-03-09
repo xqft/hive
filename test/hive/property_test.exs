@@ -210,8 +210,7 @@ defmodule Hive.PropertyTest do
 
         pid =
           start_supervised!(
-            {Topic,
-             name: topic_name, description: "prop test", type: :topic, created_by: "test"},
+            {Topic, name: topic_name, description: "prop test", type: :topic, created_by: "test"},
             id: topic_name
           )
 
@@ -258,8 +257,7 @@ defmodule Hive.PropertyTest do
 
         pid =
           start_supervised!(
-            {Topic,
-             name: topic_name, description: "prop test", type: :topic, created_by: "test"},
+            {Topic, name: topic_name, description: "prop test", type: :topic, created_by: "test"},
             id: topic_name
           )
 
@@ -346,12 +344,13 @@ defmodule Hive.PropertyTest do
 
     property "non-numeric string timeouts are rejected" do
       check all(
-              bad <- filter(string(:alphanumeric, min_length: 1, max_length: 10), fn s ->
-                case Float.parse(s) do
-                  {_, ""} -> false
-                  _ -> true
-                end
-              end)
+              bad <-
+                filter(string(:alphanumeric, min_length: 1, max_length: 10), fn s ->
+                  case Float.parse(s) do
+                    {_, ""} -> false
+                    _ -> true
+                  end
+                end)
             ) do
         task_input = %{"task" => "test task", "timeout_minutes" => bad}
         assert {:error, _} = Hive.Container.validate_execution(task_input)
@@ -360,7 +359,9 @@ defmodule Hive.PropertyTest do
 
     property "empty or missing task is accepted (defaults to interactive session)" do
       check all(minutes <- one_of([constant(nil), integer(1..60)])) do
-        assert :ok = Hive.Container.validate_execution(%{"task" => "", "timeout_minutes" => minutes})
+        assert :ok =
+                 Hive.Container.validate_execution(%{"task" => "", "timeout_minutes" => minutes})
+
         assert :ok = Hive.Container.validate_execution(%{"timeout_minutes" => minutes})
       end
     end

@@ -132,7 +132,8 @@ defmodule Hive.TerminalRelay do
 
     # Use stty to set the PTY size before attaching to tmux.
     # This ensures tmux sees the correct client dimensions.
-    cmd = "stty cols #{cols} rows #{rows} 2>/dev/null; exec #{docker} exec -it #{container_id} tmux attach -t main"
+    cmd =
+      "stty cols #{cols} rows #{rows} 2>/dev/null; exec #{docker} exec -it #{container_id} tmux attach -t main"
 
     Port.open(
       {:spawn_executable, script},

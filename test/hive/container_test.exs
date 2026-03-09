@@ -48,7 +48,9 @@ defmodule Hive.ContainerTest do
     end
 
     case Registry.lookup(Hive.ContainerRegistry, container_id) do
-      [] -> :ok
+      [] ->
+        :ok
+
       _ ->
         Process.sleep(10)
         await_registry_cleanup(container_id, attempts - 1)
@@ -261,7 +263,9 @@ defmodule Hive.ContainerTest do
       assert {:ok, container_id} =
                Hive.Container.start("container-test-agent", %{})
 
-      assert_receive {:started, "container-test-agent", ^container_id, "Interactive session"}, 2_000
+      assert_receive {:started, "container-test-agent", ^container_id, "Interactive session"},
+                     2_000
+
       assert_receive {:stopped, ^container_id, :completed}, 2_000
     end
 

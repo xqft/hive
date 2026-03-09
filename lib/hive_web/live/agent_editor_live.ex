@@ -540,10 +540,11 @@ defmodule HiveWeb.AgentEditorLive do
     # Redirect stdin from /dev/null so claude doesn't hang waiting for input.
     case System.cmd("bash", ["-c", ~s(claude -p "$HIVE_PROMPT" --output-format text < /dev/null)],
            stderr_to_stdout: true,
-           env: [
-             {"HIVE_PROMPT", prompt},
-             {"CLAUDECODE", nil}
-           ] ++ oauth_env()
+           env:
+             [
+               {"HIVE_PROMPT", prompt},
+               {"CLAUDECODE", nil}
+             ] ++ oauth_env()
          ) do
       {output, 0} -> {:ok, String.trim(output)}
       {output, code} -> {:error, "claude exited #{code}: #{String.slice(output, 0, 200)}"}

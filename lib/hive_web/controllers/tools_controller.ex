@@ -213,7 +213,8 @@ defmodule HiveWeb.ToolsController do
   defp execute_tool(agent, "execute_in_container", params) do
     case Hive.Container.start(agent, params) do
       {:ok, container_id} ->
-        {:ok, "Container #{container_id} launched with an empty bash shell. Use send_to_container to run commands."}
+        {:ok,
+         "Container #{container_id} launched with an empty bash shell. Use send_to_container to run commands."}
 
       {:error, msg} ->
         {:error, msg}
@@ -232,7 +233,11 @@ defmodule HiveWeb.ToolsController do
     Hive.Container.capture_output(id, params)
   end
 
-  defp execute_tool(_agent, "container_new_window", %{"container_id" => id, "name" => name} = params) do
+  defp execute_tool(
+         _agent,
+         "container_new_window",
+         %{"container_id" => id, "name" => name} = params
+       ) do
     Hive.Container.new_window(id, name, params["command"])
   end
 

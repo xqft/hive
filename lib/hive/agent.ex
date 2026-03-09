@@ -409,7 +409,10 @@ defmodule Hive.Agent do
 
     env =
       [{~c"CLAUDECODE", false}] ++
-        if(oauth_token, do: [{~c"CLAUDE_CODE_OAUTH_TOKEN", String.to_charlist(oauth_token)}], else: [])
+        if(oauth_token,
+          do: [{~c"CLAUDE_CODE_OAUTH_TOKEN", String.to_charlist(oauth_token)}],
+          else: []
+        )
 
     Port.open(
       {:spawn_executable, ~c"/bin/sh"},

@@ -182,7 +182,6 @@ defmodule HiveWeb.CoreComponents do
       </aside>
 
       <div class="ui-workspace">
-
         <main class="ui-workspace__body">
           {render_slot(@inner_block)}
         </main>

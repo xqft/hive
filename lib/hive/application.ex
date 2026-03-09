@@ -89,5 +89,4 @@ defmodule Hive.Application do
       )
     end
   end
-
 end

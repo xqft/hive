@@ -11,7 +11,12 @@ defmodule Hive.PersistenceTest do
     {:ok, pid} = Persistence.start_link(db_path: db_path, name: server_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      try do
+        if Process.alive?(pid), do: GenServer.stop(pid, :normal, 5000)
+      catch
+        :exit, _ -> :ok
+      end
+
       File.rm(db_path)
       File.rm(db_path <> "-wal")
       File.rm(db_path <> "-shm")

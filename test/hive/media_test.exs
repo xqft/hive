@@ -1,14 +1,16 @@
 defmodule Hive.MediaTest do
   use ExUnit.Case, async: true
 
-  @tiny_png <<137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0,
-              0, 1, 8, 2, 0, 0, 0, 144, 119, 83, 222, 0, 0, 0, 12, 73, 68, 65, 84, 8, 215, 99,
-              248, 207, 192, 0, 0, 0, 2, 0, 1, 226, 33, 188, 51, 0, 0, 0, 0, 73, 69, 78, 68,
-              174, 66, 96, 130>>
+  @tiny_png <<137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0,
+              1, 8, 2, 0, 0, 0, 144, 119, 83, 222, 0, 0, 0, 12, 73, 68, 65, 84, 8, 215, 99, 248,
+              207, 192, 0, 0, 0, 2, 0, 1, 226, 33, 188, 51, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66,
+              96, 130>>
 
   setup do
     # Use a temp directory for uploads during tests
-    tmp_dir = Path.join(System.tmp_dir!(), "hive_media_test_#{:erlang.unique_integer([:positive])}")
+    tmp_dir =
+      Path.join(System.tmp_dir!(), "hive_media_test_#{:erlang.unique_integer([:positive])}")
+
     File.mkdir_p!(tmp_dir)
 
     # Override the upload dir for this test by saving files there directly

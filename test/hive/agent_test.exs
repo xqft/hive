@@ -225,7 +225,12 @@ defmodule Hive.AgentTest do
       port = get_port(pid)
 
       # Inject session with sessionId key
-      inject_port_message(pid, port, Jason.encode!(%{"type" => "session", "sessionId" => "sess-abc"}))
+      inject_port_message(
+        pid,
+        port,
+        Jason.encode!(%{"type" => "session", "sessionId" => "sess-abc"})
+      )
+
       Process.sleep(50)
       assert Hive.Agent.info(name).session_id == "sess-abc"
 
@@ -238,7 +243,12 @@ defmodule Hive.AgentTest do
       pid = start_agent(name)
       port = get_port(pid)
 
-      inject_port_message(pid, port, Jason.encode!(%{"type" => "session", "session_id" => "sess-xyz"}))
+      inject_port_message(
+        pid,
+        port,
+        Jason.encode!(%{"type" => "session", "session_id" => "sess-xyz"})
+      )
+
       Process.sleep(50)
       assert Hive.Agent.info(name).session_id == "sess-xyz"
 
@@ -272,7 +282,12 @@ defmodule Hive.AgentTest do
       port = get_port(pid)
 
       # Set a session_id first
-      inject_port_message(pid, port, Jason.encode!(%{"type" => "session", "sessionId" => "before-crash"}))
+      inject_port_message(
+        pid,
+        port,
+        Jason.encode!(%{"type" => "session", "sessionId" => "before-crash"})
+      )
+
       Process.sleep(50)
       assert Hive.Agent.info(name).session_id == "before-crash"
 
@@ -294,7 +309,12 @@ defmodule Hive.AgentTest do
       assert Hive.Agent.info(name).session_id == "before-crash"
 
       # Verify the new SDK subprocess is responsive: inject a message and check
-      inject_port_message(pid, new_port, Jason.encode!(%{"type" => "session", "sessionId" => "after-crash"}))
+      inject_port_message(
+        pid,
+        new_port,
+        Jason.encode!(%{"type" => "session", "sessionId" => "after-crash"})
+      )
+
       Process.sleep(50)
       assert Hive.Agent.info(name).session_id == "after-crash"
 
@@ -317,7 +337,12 @@ defmodule Hive.AgentTest do
       assert Port.info(new_port) != nil
 
       # Inject a status message on the new port — agent should handle it
-      inject_port_message(pid, new_port, Jason.encode!(%{"type" => "status", "status" => "thinking"}))
+      inject_port_message(
+        pid,
+        new_port,
+        Jason.encode!(%{"type" => "status", "status" => "thinking"})
+      )
+
       assert_receive {:status, ^name, :thinking}, 1_000
 
       on_exit(fn -> Hive.Persistence.delete_agent(name) end)
@@ -384,7 +409,13 @@ defmodule Hive.AgentTest do
       :ok = Hive.Persistence.create_agent(name, "test", "test")
       pid = start_agent(name)
 
-      msg = %{sender: "someone", sender_kind: "agent", body: "private hello", ts: DateTime.utc_now()}
+      msg = %{
+        sender: "someone",
+        sender_kind: "agent",
+        body: "private hello",
+        ts: DateTime.utc_now()
+      }
+
       send(pid, {:dm_message, channel, msg})
 
       assert_receive {:status, ^name, :thinking}, 3_000
@@ -458,7 +489,13 @@ defmodule Hive.AgentTest do
       port = get_port(pid)
 
       # Send a topic message from someone else
-      msg = %{sender: "human", sender_kind: "human", body: "trigger typing", ts: DateTime.utc_now()}
+      msg = %{
+        sender: "human",
+        sender_kind: "human",
+        body: "trigger typing",
+        ts: DateTime.utc_now()
+      }
+
       send(pid, {:topic_message, topic_name, msg})
 
       # Should receive typing=true broadcast
@@ -800,7 +837,12 @@ defmodule Hive.AgentTest do
       port = get_port(pid)
 
       # Inject an error message
-      inject_port_message(pid, port, Jason.encode!(%{"type" => "error", "message" => "test error"}))
+      inject_port_message(
+        pid,
+        port,
+        Jason.encode!(%{"type" => "error", "message" => "test error"})
+      )
+
       Process.sleep(50)
 
       # Agent should still be alive and functional
