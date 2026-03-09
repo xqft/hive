@@ -976,7 +976,7 @@ defmodule Hive.AgentTest do
       )
 
       assert_receive {:scratchpad, ^name,
-                       {:tool_use, "Bash", %{"command" => "ls -la"}, "tu_123", _ts}},
+                      {:tool_use, "Bash", %{"command" => "ls -la"}, "tu_123", _ts}},
                      1_000
 
       scratchpad = Hive.Agent.scratchpad(name)
@@ -1011,8 +1011,7 @@ defmodule Hive.AgentTest do
         })
       )
 
-      assert_receive {:scratchpad, ^name,
-                       {:tool_result, "tu_456", "file1.txt\nfile2.txt", _ts}},
+      assert_receive {:scratchpad, ^name, {:tool_result, "tu_456", "file1.txt\nfile2.txt", _ts}},
                      1_000
 
       scratchpad = Hive.Agent.scratchpad(name)

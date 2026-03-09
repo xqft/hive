@@ -278,5 +278,4 @@ defmodule Hive.PropertyTest do
       end
     end
   end
-
 end

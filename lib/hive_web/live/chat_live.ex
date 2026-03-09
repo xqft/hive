@@ -421,8 +421,8 @@ defmodule HiveWeb.ChatLive do
                     {member}
                   </button>
                 </div>
-
-                <!-- Events timeline -->
+                
+    <!-- Events timeline -->
                 <div
                   :if={@scratchpad_agent}
                   id="scratchpad-events"
@@ -443,7 +443,6 @@ defmodule HiveWeb.ChatLive do
                   Select an agent to view activity
                 </div>
               </div>
-
             </aside>
           </div>
         </div>

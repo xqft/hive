@@ -285,6 +285,5 @@ defmodule HiveWeb.ChatLiveTest do
 
       assert has_element?(view, "#typing-indicator", "alice, bob are thinking")
     end
-
   end
 end
