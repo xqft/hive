@@ -848,7 +848,18 @@ defmodule Hive.Agent do
   defp build_settings_json do
     Jason.encode!(%{
       "permissions" => %{
-        "allow" => ["Skill", "mcp__hive__*"],
+        "allow" => [
+          "Bash",
+          "Read",
+          "Write",
+          "Edit",
+          "Glob",
+          "Grep",
+          "Skill",
+          "WebFetch",
+          "WebSearch",
+          "mcp__hive__*"
+        ],
         "deny" => []
       }
     })

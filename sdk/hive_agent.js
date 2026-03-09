@@ -101,7 +101,11 @@ async function processNext(batch) {
       settings: { effortLevel: "max" },
       systemPrompt,
       includePartialMessages: true,
-      allowedTools: ["Skill", ...hiveTools, ...extraToolPatterns],
+      allowedTools: [
+        "Bash", "Read", "Write", "Edit", "Glob", "Grep",
+        "Skill", "WebFetch", "WebSearch",
+        ...hiveTools, ...extraToolPatterns
+      ],
       settingSources: [],  // Don't load filesystem settings, we provide everything
       mcpServers: Object.fromEntries(
         Object.entries(mcpConfig.mcpServers).map(([name, cfg]) => [
