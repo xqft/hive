@@ -79,6 +79,18 @@ defmodule Hive.Persistence do
     GenServer.call(server, {:unassign_mcp_server, agent, mcp_server})
   end
 
+  def create_event_source(name, attrs, server \\ __MODULE__) do
+    GenServer.call(server, {:create_event_source, name, attrs})
+  end
+
+  def update_event_source(name, attrs, server \\ __MODULE__) do
+    GenServer.call(server, {:update_event_source, name, attrs})
+  end
+
+  def delete_event_source(name, server \\ __MODULE__) do
+    GenServer.call(server, {:delete_event_source, name})
+  end
+
   # -------------------------------------------------------------------
   # Client API — reads (direct, using reader connection)
   # -------------------------------------------------------------------
@@ -184,6 +196,39 @@ defmodule Hive.Persistence do
       """,
       [agent],
       [:name, :description, :command, :args, :env, :allowed_tools]
+    )
+  end
+
+  def get_event_sources(server \\ __MODULE__) do
+    reader = get_reader(server)
+
+    query_all(
+      reader,
+      "SELECT name, type, topic, config, webhook_secret, mcp_server, enabled, created_at FROM event_sources",
+      [],
+      [:name, :type, :topic, :config, :webhook_secret, :mcp_server, :enabled, :created_at]
+    )
+  end
+
+  def get_event_source(name, server \\ __MODULE__) do
+    reader = get_reader(server)
+
+    query_one(
+      reader,
+      "SELECT name, type, topic, config, webhook_secret, mcp_server, enabled, created_at FROM event_sources WHERE name = ?1",
+      [name],
+      [:name, :type, :topic, :config, :webhook_secret, :mcp_server, :enabled, :created_at]
+    )
+  end
+
+  def get_enabled_event_sources(server \\ __MODULE__) do
+    reader = get_reader(server)
+
+    query_all(
+      reader,
+      "SELECT name, type, topic, config, webhook_secret, mcp_server, enabled, created_at FROM event_sources WHERE enabled = 1",
+      [],
+      [:name, :type, :topic, :config, :webhook_secret, :mcp_server, :enabled, :created_at]
     )
   end
 
@@ -431,6 +476,61 @@ defmodule Hive.Persistence do
     {:reply, result, state}
   end
 
+  def handle_call({:create_event_source, name, attrs}, _from, state) do
+    case Validation.validate_name(name) do
+      {:error, _} = err ->
+        {:reply, err, state}
+
+      :ok ->
+        config = Jason.encode!(Map.get(attrs, :config, %{}))
+        enabled = if Map.get(attrs, :enabled, true), do: 1, else: 0
+
+        result =
+          exec_write(
+            state.writer,
+            "INSERT INTO event_sources (name, type, topic, config, webhook_secret, mcp_server, enabled) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            [
+              name,
+              Map.fetch!(attrs, :type),
+              Map.fetch!(attrs, :topic),
+              config,
+              Map.get(attrs, :webhook_secret),
+              Map.get(attrs, :mcp_server),
+              enabled
+            ]
+          )
+
+        {:reply, result, state}
+    end
+  end
+
+  def handle_call({:update_event_source, name, attrs}, _from, state) do
+    field_specs = [
+      {:type, "type", &Function.identity/1},
+      {:topic, "topic", &Function.identity/1},
+      {:config, "config", &Jason.encode!/1},
+      {:webhook_secret, "webhook_secret", &Function.identity/1},
+      {:mcp_server, "mcp_server", &Function.identity/1},
+      {:enabled, "enabled", fn val -> if val, do: 1, else: 0 end}
+    ]
+
+    case build_update(attrs, field_specs) do
+      {[], _} ->
+        {:reply, {:error, :no_changes}, state}
+
+      {sets, params} ->
+        param_idx = length(params) + 1
+        sql = "UPDATE event_sources SET #{Enum.join(sets, ", ")} WHERE name = ?#{param_idx}"
+        result = exec_write(state.writer, sql, params ++ [name])
+        {:reply, result, state}
+    end
+  end
+
+  def handle_call({:delete_event_source, name}, _from, state) do
+    result = exec_write(state.writer, "DELETE FROM event_sources WHERE name = ?1", [name])
+    {:reply, result, state}
+  end
+
   # -------------------------------------------------------------------
   # Internal helpers
   # -------------------------------------------------------------------
@@ -530,6 +630,20 @@ defmodule Hive.Persistence do
         mcp_server TEXT NOT NULL REFERENCES mcp_servers(name) ON DELETE CASCADE,
         allowed_tools TEXT NOT NULL DEFAULT '[]',
         PRIMARY KEY (agent, mcp_server)
+      )
+      """)
+
+    :ok =
+      Sqlite3.execute(conn, """
+      CREATE TABLE IF NOT EXISTS event_sources (
+        name TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        topic TEXT NOT NULL,
+        config TEXT NOT NULL DEFAULT '{}',
+        webhook_secret TEXT,
+        mcp_server TEXT REFERENCES mcp_servers(name) ON DELETE SET NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
       """)
   end

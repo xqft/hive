@@ -302,6 +302,79 @@ defmodule Hive.PersistenceTest do
   end
 
   # -------------------------------------------------------------------
+  # Event Sources
+  # -------------------------------------------------------------------
+
+  describe "event_sources" do
+    test "create and get event source", %{server: s} do
+      attrs = %{type: "poll", topic: "events", config: %{"command" => "echo", "args" => ["hi"]}}
+      assert :ok = Persistence.create_event_source("my-source", attrs, s)
+
+      {:ok, src} = Persistence.get_event_source("my-source", s)
+      assert src.name == "my-source"
+      assert src.type == "poll"
+      assert src.topic == "events"
+      assert src.enabled == 1
+    end
+
+    test "get_event_sources lists all", %{server: s} do
+      :ok = Persistence.create_event_source("s1", %{type: "poll", topic: "t1"}, s)
+      :ok = Persistence.create_event_source("s2", %{type: "webhook", topic: "t2"}, s)
+
+      {:ok, sources} = Persistence.get_event_sources(s)
+      names = Enum.map(sources, & &1.name) |> Enum.sort()
+      assert names == ["s1", "s2"]
+    end
+
+    test "update event source", %{server: s} do
+      :ok = Persistence.create_event_source("upd-src", %{type: "poll", topic: "t1"}, s)
+      :ok = Persistence.update_event_source("upd-src", %{topic: "t2", enabled: false}, s)
+
+      {:ok, src} = Persistence.get_event_source("upd-src", s)
+      assert src.topic == "t2"
+      assert src.enabled == 0
+    end
+
+    test "update with no changes returns error", %{server: s} do
+      :ok = Persistence.create_event_source("noop-src", %{type: "poll", topic: "t1"}, s)
+      assert {:error, :no_changes} = Persistence.update_event_source("noop-src", %{}, s)
+    end
+
+    test "delete event source", %{server: s} do
+      :ok = Persistence.create_event_source("del-src", %{type: "poll", topic: "t1"}, s)
+      :ok = Persistence.delete_event_source("del-src", s)
+      assert {:ok, nil} = Persistence.get_event_source("del-src", s)
+    end
+
+    test "get_enabled_event_sources filters correctly", %{server: s} do
+      :ok = Persistence.create_event_source("enabled-src", %{type: "poll", topic: "t1", enabled: true}, s)
+      :ok = Persistence.create_event_source("disabled-src", %{type: "poll", topic: "t2", enabled: false}, s)
+
+      {:ok, enabled} = Persistence.get_enabled_event_sources(s)
+      names = Enum.map(enabled, & &1.name)
+      assert names == ["enabled-src"]
+    end
+
+    test "mcp_server FK links and ON DELETE SET NULL", %{server: s} do
+      :ok = Persistence.create_mcp_server("linked-mcp", "d", "cmd", [], %{}, s)
+      :ok = Persistence.create_event_source("fk-src", %{type: "poll", topic: "t1", mcp_server: "linked-mcp"}, s)
+
+      {:ok, src} = Persistence.get_event_source("fk-src", s)
+      assert src.mcp_server == "linked-mcp"
+
+      :ok = Persistence.delete_mcp_server("linked-mcp", s)
+      {:ok, src} = Persistence.get_event_source("fk-src", s)
+      assert src.mcp_server == nil
+    end
+
+    test "name validation rejects invalid names", %{server: s} do
+      assert {:error, :invalid_name} = Persistence.create_event_source("", %{type: "poll", topic: "t"}, s)
+      assert {:error, :invalid_name} = Persistence.create_event_source("bad name", %{type: "poll", topic: "t"}, s)
+      assert {:error, :invalid_name} = Persistence.create_event_source("_bad", %{type: "poll", topic: "t"}, s)
+    end
+  end
+
+  # -------------------------------------------------------------------
   # Topic deletion
   # -------------------------------------------------------------------
 
