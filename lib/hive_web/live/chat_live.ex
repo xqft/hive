@@ -777,7 +777,7 @@ defmodule HiveWeb.ChatLive do
   end
 
   # Scratchpad events from agent activity
-  def handle_info({:scratchpad_event, event}, socket) do
+  def handle_info({:scratchpad, _agent_name, event}, socket) do
     events = socket.assigns.scratchpad_events ++ [event]
     # Keep last 100 to match agent-side buffer
     events = if length(events) > 100, do: Enum.drop(events, length(events) - 100), else: events
