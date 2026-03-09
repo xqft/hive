@@ -29,6 +29,11 @@ defmodule Hive.Agent do
     :active_channel,
     :typing_timer,
     :composing_since,
+    :container_name,
+    :volume_name,
+    :idle_timer,
+    container_status: :stopped,
+    pending_messages: [],
     line_buffer: "",
     scratchpad: []
   ]
@@ -121,28 +126,6 @@ defmodule Hive.Agent do
         _ -> MapSet.new()
       end
 
-    # Set up agent working directory
-    agent_dir = agent_dir(name)
-    File.mkdir_p!(agent_dir)
-    File.mkdir_p!(Path.join(agent_dir, ".claude/skills"))
-
-    # Write CLAUDE.md from personality
-    write_claude_md(name, agent_dir, description, personality)
-
-    # Write MCP config
-    write_mcp_config(name, secret)
-
-    # Start the SDK subprocess
-    sdk_port = start_sdk_process(name, nil)
-
-    # Subscribe to PubSub for topic messages and DMs that might be broadcast
-    # (Topics deliver messages directly via send/2, but we subscribe for completeness)
-
-    # Broadcast initial status
-    Phoenix.PubSub.broadcast(Hive.PubSub, "agents", {:status, name, :idle})
-
-    Logger.info("Agent #{name} started")
-
     state = %__MODULE__{
       name: name,
       description: description,
@@ -150,11 +133,37 @@ defmodule Hive.Agent do
       topics: topics,
       dms: MapSet.new(),
       status: :idle,
-      sdk_port: sdk_port,
+      sdk_port: nil,
       session_id: nil,
       mcp_secret: secret,
-      active_channel: nil
+      active_channel: nil,
+      container_name: "hive-agent-#{name}",
+      volume_name: "hive-agent-#{name}"
     }
+
+    # Branch: test mode (mock SDK subprocess) vs production (Docker container)
+    state =
+      if test_sdk_mode?() do
+        # Test mode: use host-side subprocess with mock SDK
+        agent_dir = agent_dir(name)
+        File.mkdir_p!(agent_dir)
+        File.mkdir_p!(Path.join(agent_dir, ".claude/skills"))
+
+        write_claude_md(name, agent_dir, description, personality)
+        write_mcp_config(name, secret)
+
+        sdk_port = start_test_sdk_process(name, nil)
+        %{state | sdk_port: sdk_port, container_status: :running}
+      else
+        # Production mode: persistent Docker container
+        sdk_port = start_container(state)
+        %{state | sdk_port: sdk_port, container_status: :running}
+      end
+
+    # Broadcast initial status
+    Phoenix.PubSub.broadcast(Hive.PubSub, "agents", {:status, name, :idle})
+
+    Logger.info("Agent #{name} started")
 
     {:ok, state, {:continue, :send_catch_up}}
   end
@@ -184,13 +193,23 @@ defmodule Hive.Agent do
   def terminate(reason, state) do
     Logger.info("Agent #{state.name} terminating: #{inspect(reason)}")
 
-    # Close the SDK subprocess port
+    # Close the SDK port
     if state.sdk_port do
       try do
         Port.close(state.sdk_port)
       rescue
         ArgumentError -> :ok
       end
+    end
+
+    # In container mode, stop the container gracefully
+    if not test_sdk_mode?() and state.container_name do
+      docker = docker_executable()
+      Logger.info("Agent #{state.name} stopping container #{state.container_name}")
+
+      System.cmd(docker, ["stop", "-t", "5", state.container_name],
+        stderr_to_stdout: true
+      )
     end
 
     :ok
@@ -406,18 +425,71 @@ defmodule Hive.Agent do
     {:noreply, %{state | line_buffer: state.line_buffer <> partial}}
   end
 
-  # -- Info: SDK subprocess crash ------------------------------------------
+  # -- Info: SDK subprocess / container exit --------------------------------
 
   def handle_info({port, {:exit_status, code}}, %{sdk_port: port} = state) do
+    if test_sdk_mode?() do
+      # Test mode: restart the mock subprocess immediately
+      handle_test_sdk_exit(state, code)
+    else
+      # Container mode: handle based on container_status
+      handle_container_exit(state, code)
+    end
+  end
+
+  # Catch-all for unexpected port messages
+  def handle_info({port, _}, %{sdk_port: port} = state) do
+    {:noreply, state}
+  end
+
+  def handle_info(:typing_grace_expired, state) do
+    state = stop_active_typing(state, preserve_channel: true)
+    {:noreply, %{state | typing_timer: nil, composing_since: nil}}
+  end
+
+  def handle_info(msg, state) do
+    Logger.debug("Agent #{state.name} received unexpected message: #{inspect(msg)}")
+    {:noreply, state}
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test SDK subprocess (used when :agent_sdk_command is configured)
+  # ---------------------------------------------------------------------------
+
+  defp test_sdk_mode? do
+    Application.get_env(:hive, :agent_sdk_command) != nil
+  end
+
+  defp start_test_sdk_process(agent_name, session_id) do
+    agent_dir = agent_dir(agent_name)
+    File.mkdir_p!(agent_dir)
+
+    {executable, args_fn} = Application.get_env(:hive, :agent_sdk_command)
+    args = args_fn.(agent_name, session_id)
+    stderr_log = Path.join(agent_dir, "sdk_stderr.log")
+    shell_cmd = Enum.join([executable | args], " ") <> " 2>>#{stderr_log}"
+
+    Port.open(
+      {:spawn_executable, ~c"/bin/sh"},
+      [
+        :binary,
+        :exit_status,
+        args: ["-c", shell_cmd],
+        env: [],
+        line: 65_536
+      ]
+    )
+  end
+
+  defp handle_test_sdk_exit(state, code) do
     Logger.warning(
       "Agent #{state.name} SDK process exited (code #{code}), restarting with session #{state.session_id}"
     )
 
     state = stop_active_typing(state)
-    new_port = start_sdk_process(state.name, state.session_id)
+    new_port = start_test_sdk_process(state.name, state.session_id)
     state = %{state | sdk_port: new_port}
 
-    # Crash recovery: inject catch-up context from subscribed topics
     catch_up = build_catch_up(state)
 
     if catch_up != "" do
@@ -437,194 +509,235 @@ defmodule Hive.Agent do
     {:noreply, state}
   end
 
-  # Catch-all for unexpected port messages
-  def handle_info({port, _}, %{sdk_port: port} = state) do
-    {:noreply, state}
-  end
-
-  def handle_info(:typing_grace_expired, state) do
-    state = stop_active_typing(state, preserve_channel: true)
-    {:noreply, %{state | typing_timer: nil, composing_since: nil}}
-  end
-
-  def handle_info(msg, state) do
-    Logger.debug("Agent #{state.name} received unexpected message: #{inspect(msg)}")
-    {:noreply, state}
-  end
-
   # ---------------------------------------------------------------------------
-  # SDK subprocess management
+  # Container lifecycle management (production mode)
   # ---------------------------------------------------------------------------
 
-  defp start_sdk_process(agent_name, session_id) do
-    agent_dir = agent_dir(agent_name)
-    File.mkdir_p!(agent_dir)
+  defp start_container(state) do
+    container_name = state.container_name
+    volume_name = state.volume_name
 
-    case Application.get_env(:hive, :agent_sdk_command) do
-      {executable, args_fn} when is_function(args_fn, 2) ->
-        # Test/custom SDK command — args_fn receives (agent_name, session_id)
-        args = args_fn.(agent_name, session_id)
-        stderr_log = Path.join(agent_dir, "sdk_stderr.log")
-        shell_cmd = Enum.join([executable | args], " ") <> " 2>>#{stderr_log}"
+    # Ensure volume exists
+    ensure_volume(volume_name)
 
-        Port.open(
-          {:spawn_executable, ~c"/bin/sh"},
-          [
-            :binary,
-            :exit_status,
-            args: ["-c", shell_cmd],
-            env: [],
-            line: 65_536
-          ]
-        )
+    # Initialize volume on first creation
+    maybe_init_volume(state, volume_name)
 
-      _ ->
-        start_default_sdk_process(agent_name, agent_dir, session_id)
+    # Check if container exists (from previous run)
+    case container_exists?(container_name) do
+      true ->
+        # Wake: docker start -ia
+        wake_container(state, container_name)
+
+      false ->
+        # First start: docker run -i
+        create_container(state, container_name, volume_name)
     end
   end
 
-  defp start_default_sdk_process(agent_name, agent_dir, session_id) do
-    mcp_config_path = mcp_config_path(agent_name)
-    system_prompt_path = write_dynamic_context(agent_name, agent_dir)
+  defp create_container(state, container_name, volume_name) do
+    docker = docker_executable()
+    oauth_token = Application.get_env(:hive, :claude_oauth_token) || ""
+    image = Application.get_env(:hive, :container_image_name, "hive-claude-code:latest")
 
-    sdk_script = resolve_sdk_path("sdk/hive_agent.js")
-
-    base_args = [sdk_script, agent_name, mcp_config_path, agent_dir, system_prompt_path]
-    base_args = if session_id, do: base_args ++ [session_id], else: base_args
-
-    # Use /bin/sh to get stderr redirection
-    stderr_log = Path.join(agent_dir, "sdk_stderr.log")
-    node = System.find_executable("node") || "node"
-    shell_cmd = Enum.join([node | base_args], " ") <> " 2>>#{stderr_log}"
-
-    # Pass CLAUDE_CODE_OAUTH_TOKEN, unset CLAUDECODE to allow nested claude CLI calls
-    oauth_token = Application.get_env(:hive, :claude_oauth_token)
-
-    env =
-      [{~c"CLAUDECODE", false}] ++
-        if(oauth_token,
-          do: [{~c"CLAUDE_CODE_OAUTH_TOKEN", String.to_charlist(oauth_token)}],
-          else: []
-        )
+    args = [
+      "run",
+      "-i",
+      "--name",
+      container_name,
+      "-v",
+      "#{volume_name}:/workspace",
+      "--network",
+      "bridge",
+      "--add-host",
+      "host.docker.internal:host-gateway",
+      "-e",
+      "ANTHROPIC_API_KEY=#{oauth_token}",
+      "-e",
+      "CLAUDE_CODE_OAUTH_TOKEN=#{oauth_token}",
+      image,
+      state.name,
+      mcp_config_internal_path(),
+      "/workspace",
+      "/workspace/.hive/context.md"
+    ]
 
     Port.open(
-      {:spawn_executable, ~c"/bin/sh"},
-      [
-        :binary,
-        :exit_status,
-        args: ["-c", shell_cmd],
-        env: env,
-        line: 65_536
-      ]
+      {:spawn_executable, String.to_charlist(docker)},
+      [:binary, :exit_status, args: args, line: 65_536]
     )
   end
 
-  # ---------------------------------------------------------------------------
-  # MCP config
-  # ---------------------------------------------------------------------------
+  defp wake_container(state, container_name) do
+    docker = docker_executable()
 
-  defp write_mcp_config(agent_name, secret) do
-    mcp_servers = %{
-      "hive" => %{
-        "command" => "node",
-        "args" => [mcp_bridge_script(), agent_name, secret, hive_url()]
-      }
-    }
+    # Update context before waking
+    update_container_context(state, container_name)
 
-    tool_filters = %{}
-
-    # Add any assigned MCP servers from persistence
-    {mcp_servers, tool_filters} =
-      case Hive.Persistence.get_agent_mcp_servers(agent_name) do
-        {:ok, servers} ->
-          Enum.reduce(servers, {mcp_servers, tool_filters}, fn srv, {ms, tf} ->
-            args = parse_json_field(srv.args, [])
-            env = parse_json_field(srv.env, %{})
-
-            server_config = %{"command" => srv.command, "args" => args}
-
-            server_config =
-              if env != %{}, do: Map.put(server_config, "env", env), else: server_config
-
-            ms = Map.put(ms, srv.name, server_config)
-
-            # Build tool filters from allowed_tools
-            allowed = parse_json_field(srv.allowed_tools, [])
-
-            tf =
-              if allowed != [] do
-                Map.put(tf, srv.name, allowed)
-              else
-                tf
-              end
-
-            {ms, tf}
-          end)
-
-        _ ->
-          {mcp_servers, tool_filters}
-      end
-
-    config = %{
-      "mcpServers" => mcp_servers,
-      "toolFilters" => tool_filters
-    }
-
-    path = mcp_config_path(agent_name)
-    File.mkdir_p!(Path.dirname(path))
-    File.write!(path, Jason.encode!(config, pretty: true))
-    path
+    Port.open(
+      {:spawn_executable, String.to_charlist(docker)},
+      [:binary, :exit_status, args: ["start", "-ia", container_name], line: 65_536]
+    )
   end
 
-  # ---------------------------------------------------------------------------
-  # Dynamic context (system prompt — refreshed before each SDK turn)
-  # ---------------------------------------------------------------------------
+  defp handle_container_exit(state, code) do
+    Logger.warning(
+      "Agent #{state.name} container exited (code #{code}), container_status=#{state.container_status}"
+    )
 
-  defp write_dynamic_context(agent_name, agent_dir) do
-    agents_section =
-      build_context_section(
-        Hive.Persistence.get_agents(),
-        fn a -> "- #{a.name} -- #{a.description}" end
-      )
+    state = stop_active_typing(state)
 
-    topics_section =
-      build_context_section(
-        Hive.Persistence.get_subscriptions(agent_name),
-        fn t -> "- #{t}" end
-      )
+    case state.container_status do
+      :stopping ->
+        # Expected exit after idle timeout stop — transition to :stopped
+        state = %{state | sdk_port: nil, container_status: :stopped}
 
-    content = """
-    ## Other Agents
-    #{agents_section}
+        # Replay any messages queued while stopping
+        state = replay_pending_messages(state)
+        {:noreply, state}
 
-    ## Your Topics
-    #{topics_section}
-    """
+      _ ->
+        # Unexpected exit — restart the container
+        Logger.warning("Agent #{state.name} container crashed, restarting")
 
-    path = Path.join(agent_dir, ".hive_context.md")
-    File.write!(path, content)
-    path
+        new_port = start_container(state)
+        state = %{state | sdk_port: new_port, container_status: :running}
+
+        catch_up = build_catch_up(state)
+
+        if catch_up != "" do
+          send_to_sdk(
+            state,
+            """
+            [system]
+            timestamp=#{format_timestamp(DateTime.utc_now())}
+            body:
+            You were restarted. Recent messages from your subscribed channels are below. Messages from other agents are shared context, not automatic requests for a reply.
+            #{catch_up}
+            [/system]
+            """
+          )
+        end
+
+        {:noreply, state}
+    end
   end
 
-  defp build_context_section(result, format_fn) do
-    case result do
-      {:ok, items} -> Enum.map_join(items, "\n", format_fn)
-      _ -> ""
+  defp replay_pending_messages(state) do
+    case state.pending_messages do
+      [] ->
+        state
+
+      messages ->
+        # Wake the container to deliver queued messages
+        Logger.info("Agent #{state.name} replaying #{length(messages)} pending messages")
+        new_port = start_container(state)
+        state = %{state | sdk_port: new_port, container_status: :running, pending_messages: []}
+
+        Enum.each(Enum.reverse(messages), fn msg ->
+          send_to_sdk(state, msg)
+        end)
+
+        state
     end
   end
 
   # ---------------------------------------------------------------------------
-  # CLAUDE.md generation
+  # Volume management
   # ---------------------------------------------------------------------------
 
-  defp write_claude_md(agent_name, agent_dir, description, personality) do
-    content = """
-    # #{agent_name}
+  defp ensure_volume(volume_name) do
+    docker = docker_executable()
+    System.cmd(docker, ["volume", "create", volume_name], stderr_to_stdout: true)
+  end
 
-    #{description}
+  defp container_exists?(container_name) do
+    docker = docker_executable()
+    {_, code} = System.cmd(docker, ["container", "inspect", container_name], stderr_to_stdout: true)
+    code == 0
+  end
+
+  defp maybe_init_volume(state, volume_name) do
+    docker = docker_executable()
+
+    # Check if volume is already initialized (has CLAUDE.md)
+    {_output, code} =
+      System.cmd(
+        docker,
+        [
+          "run",
+          "--rm",
+          "-v",
+          "#{volume_name}:/workspace",
+          "alpine",
+          "test",
+          "-f",
+          "/workspace/CLAUDE.md"
+        ],
+        stderr_to_stdout: true
+      )
+
+    if code != 0 do
+      # Volume is fresh - initialize it
+      init_volume_files(state, volume_name)
+    end
+  end
+
+  defp init_volume_files(state, volume_name) do
+    docker = docker_executable()
+    tmp_dir = Path.join(System.tmp_dir!(), "hive_vol_init_#{state.name}")
+    File.mkdir_p!(tmp_dir)
+
+    # Write all files to temp dir
+    File.mkdir_p!(Path.join(tmp_dir, ".claude/skills"))
+    File.mkdir_p!(Path.join(tmp_dir, ".hive"))
+
+    File.write!(Path.join(tmp_dir, "CLAUDE.md"), build_claude_md(state))
+    File.write!(Path.join(tmp_dir, ".claude/settings.json"), build_settings_json())
+    File.write!(Path.join(tmp_dir, ".hive/mcp_config.json"), build_mcp_config(state))
+    File.write!(Path.join(tmp_dir, ".hive/context.md"), build_dynamic_context(state.name))
+
+    # Copy into volume using alpine container
+    System.cmd(
+      docker,
+      [
+        "run",
+        "--rm",
+        "-v",
+        "#{volume_name}:/workspace",
+        "-v",
+        "#{tmp_dir}:/init:ro",
+        "alpine",
+        "sh",
+        "-c",
+        "cp -r /init/. /workspace/ && chown -R 1000:1000 /workspace"
+      ],
+      stderr_to_stdout: true
+    )
+
+    File.rm_rf!(tmp_dir)
+  end
+
+  defp update_container_context(state, container_name) do
+    docker = docker_executable()
+    tmp = Path.join(System.tmp_dir!(), "hive_ctx_#{state.name}.md")
+    File.write!(tmp, build_dynamic_context(state.name))
+    System.cmd(docker, ["cp", tmp, "#{container_name}:/workspace/.hive/context.md"], stderr_to_stdout: true)
+    File.rm(tmp)
+  end
+
+  # ---------------------------------------------------------------------------
+  # Container-mode content builders
+  # ---------------------------------------------------------------------------
+
+  defp build_claude_md(state) do
+    """
+    # #{state.name}
+
+    #{state.description}
 
     ## Personality
-    #{personality}
+    #{state.personality}
 
     ## Environment
     You are an agent in Hive, a multi-agent orchestration system.
@@ -699,9 +812,177 @@ defmodule Hive.Agent do
     - Do not invent provenance such as "project memory" or claim that you ran commands,
       inspected files, or changed code unless you actually used the corresponding tool.
     """
+  end
+
+  defp build_settings_json do
+    Jason.encode!(%{
+      "permissions" => %{
+        "allow" => ["Skill", "mcp__hive__*"],
+        "deny" => []
+      }
+    })
+  end
+
+  defp build_mcp_config(state) do
+    hive_url = "http://host.docker.internal:#{hive_port()}"
+
+    mcp_servers = %{
+      "hive" => %{
+        "command" => "node",
+        "args" => ["/opt/hive/hive_mcp_bridge.js", state.name, state.mcp_secret, hive_url]
+      }
+    }
+
+    tool_filters = %{}
+
+    # Add any assigned MCP servers from persistence
+    {mcp_servers, tool_filters} =
+      case Hive.Persistence.get_agent_mcp_servers(state.name) do
+        {:ok, servers} ->
+          Enum.reduce(servers, {mcp_servers, tool_filters}, fn srv, {ms, tf} ->
+            args = parse_json_field(srv.args, [])
+            env = parse_json_field(srv.env, %{})
+
+            server_config = %{"command" => srv.command, "args" => args}
+
+            server_config =
+              if env != %{}, do: Map.put(server_config, "env", env), else: server_config
+
+            ms = Map.put(ms, srv.name, server_config)
+
+            allowed = parse_json_field(srv.allowed_tools, [])
+
+            tf =
+              if allowed != [] do
+                Map.put(tf, srv.name, allowed)
+              else
+                tf
+              end
+
+            {ms, tf}
+          end)
+
+        _ ->
+          {mcp_servers, tool_filters}
+      end
+
+    Jason.encode!(
+      %{
+        "mcpServers" => mcp_servers,
+        "toolFilters" => tool_filters
+      },
+      pretty: true
+    )
+  end
+
+  defp build_dynamic_context(agent_name) do
+    agents_section =
+      build_context_section(
+        Hive.Persistence.get_agents(),
+        fn a -> "- #{a.name} -- #{a.description}" end
+      )
+
+    topics_section =
+      build_context_section(
+        Hive.Persistence.get_subscriptions(agent_name),
+        fn t -> "- #{t}" end
+      )
+
+    """
+    ## Other Agents
+    #{agents_section}
+
+    ## Your Topics
+    #{topics_section}
+    """
+  end
+
+  defp build_context_section(result, format_fn) do
+    case result do
+      {:ok, items} -> Enum.map_join(items, "\n", format_fn)
+      _ -> ""
+    end
+  end
+
+  defp mcp_config_internal_path, do: "/workspace/.hive/mcp_config.json"
+
+  defp hive_port do
+    Application.get_env(:hive, HiveWeb.Endpoint)[:http][:port] || 4000
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test-mode file writers (write to host filesystem for mock SDK)
+  # ---------------------------------------------------------------------------
+
+  defp write_mcp_config(agent_name, secret) do
+    mcp_servers = %{
+      "hive" => %{
+        "command" => "node",
+        "args" => [mcp_bridge_script(), agent_name, secret, hive_url()]
+      }
+    }
+
+    tool_filters = %{}
+
+    # Add any assigned MCP servers from persistence
+    {mcp_servers, tool_filters} =
+      case Hive.Persistence.get_agent_mcp_servers(agent_name) do
+        {:ok, servers} ->
+          Enum.reduce(servers, {mcp_servers, tool_filters}, fn srv, {ms, tf} ->
+            args = parse_json_field(srv.args, [])
+            env = parse_json_field(srv.env, %{})
+
+            server_config = %{"command" => srv.command, "args" => args}
+
+            server_config =
+              if env != %{}, do: Map.put(server_config, "env", env), else: server_config
+
+            ms = Map.put(ms, srv.name, server_config)
+
+            allowed = parse_json_field(srv.allowed_tools, [])
+
+            tf =
+              if allowed != [] do
+                Map.put(tf, srv.name, allowed)
+              else
+                tf
+              end
+
+            {ms, tf}
+          end)
+
+        _ ->
+          {mcp_servers, tool_filters}
+      end
+
+    config = %{
+      "mcpServers" => mcp_servers,
+      "toolFilters" => tool_filters
+    }
+
+    path = mcp_config_path(agent_name)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Jason.encode!(config, pretty: true))
+    path
+  end
+
+  defp write_dynamic_context(agent_name, agent_dir) do
+    content = build_dynamic_context(agent_name)
+    path = Path.join(agent_dir, ".hive_context.md")
+    File.write!(path, content)
+    path
+  end
+
+  defp write_claude_md(agent_name, agent_dir, description, personality) do
+    # Build a temporary state-like struct for build_claude_md
+    tmp_state = %__MODULE__{
+      name: agent_name,
+      description: description,
+      personality: personality
+    }
 
     path = Path.join(agent_dir, "CLAUDE.md")
-    File.write!(path, content)
+    File.write!(path, build_claude_md(tmp_state))
     path
   end
 
@@ -710,7 +991,10 @@ defmodule Hive.Agent do
   # ---------------------------------------------------------------------------
 
   defp send_to_sdk(state, message_text) do
-    write_dynamic_context(state.name, agent_dir(state.name))
+    if test_sdk_mode?() do
+      write_dynamic_context(state.name, agent_dir(state.name))
+    end
+
     Logger.debug("Agent #{state.name} -> SDK: #{String.slice(message_text, 0, 200)}")
 
     try do
@@ -859,6 +1143,12 @@ defmodule Hive.Agent do
   end
 
   defdelegate safe_broadcast(topic, payload), to: Hive.Util
+
+  defp docker_executable do
+    Application.get_env(:hive, :container_docker_executable) ||
+      System.find_executable("docker") ||
+      "docker"
+  end
 
   defp agent_dir(agent_name) do
     Path.join(["priv", "agents", agent_name]) |> Path.expand()

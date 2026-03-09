@@ -31,6 +31,14 @@ RUN useradd -m -s /bin/bash hive \
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
+# Copy Hive SDK files for persistent agent mode
+COPY sdk/hive_agent.js sdk/hive_mcp_bridge.js sdk/message_batcher.js /opt/hive/
+COPY sdk/package.json sdk/package-lock.json /opt/hive/
+RUN cd /opt/hive && npm ci --omit=dev
+
+COPY docker/entrypoint-agent.sh /usr/local/bin/entrypoint-agent.sh
+RUN chmod +x /usr/local/bin/entrypoint-agent.sh
+
 USER hive
 ENV PATH="/home/hive/.local/bin:${PATH}"
 
@@ -49,4 +57,4 @@ RUN printf '%s\n' '{"mcpServers":{"playwright":{"command":"npx","args":["@playwr
 
 WORKDIR /workspace
 
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/entrypoint-agent.sh"]
