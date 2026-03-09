@@ -88,7 +88,7 @@ defmodule HiveWeb.ChatLiveTest do
       {:ok, _view, html} = live(conn, "/")
       assert html =~ "Overview"
       assert html =~ "Agents"
-      assert html =~ "MCP"
+      assert html =~ "Connectors"
     end
   end
 

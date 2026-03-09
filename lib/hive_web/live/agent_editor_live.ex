@@ -121,10 +121,10 @@ defmodule HiveWeb.AgentEditorLive do
     <!-- MCP Server assignment -->
                 <div class="form-control mb-4">
                   <label class="mb-2 block text-sm font-medium text-[var(--ui-text-strong)]">
-                    MCP Servers
+                    Connectors
                   </label>
                   <div :if={@mcp_servers == []} class="text-sm text-base-content/50">
-                    No MCP servers installed. <a href="/mcp" class="link link-primary">Install one</a>.
+                    No MCP servers installed. <a href="/connectors" class="link link-primary">Install one</a>.
                   </div>
                   <div
                     :for={mcp <- @mcp_servers}

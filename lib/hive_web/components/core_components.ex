@@ -144,7 +144,7 @@ defmodule HiveWeb.CoreComponents do
         %{key: :chat, label: "Chat", href: "/", icon: "hero-chat-bubble-left-right"},
         %{key: :dashboard, label: "Overview", href: "/dashboard", icon: "hero-squares-2x2"},
         %{key: :agents, label: "Agents", href: "/agents", icon: "hero-users"},
-        %{key: :mcp, label: "MCP", href: "/mcp", icon: "hero-command-line"}
+        %{key: :connectors, label: "Connectors", href: "/connectors", icon: "hero-puzzle-piece"}
       ])
 
     ~H"""
