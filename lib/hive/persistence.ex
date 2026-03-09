@@ -59,26 +59,6 @@ defmodule Hive.Persistence do
     GenServer.call(server, {:update_agent_personality, agent, content})
   end
 
-  def create_mcp_server(name, description, command, args, env, server \\ __MODULE__) do
-    GenServer.call(server, {:create_mcp_server, name, description, command, args, env})
-  end
-
-  def update_mcp_server(name, attrs, server \\ __MODULE__) do
-    GenServer.call(server, {:update_mcp_server, name, attrs})
-  end
-
-  def delete_mcp_server(name, server \\ __MODULE__) do
-    GenServer.call(server, {:delete_mcp_server, name})
-  end
-
-  def assign_mcp_server(agent, mcp_server, allowed_tools \\ [], server \\ __MODULE__) do
-    GenServer.call(server, {:assign_mcp_server, agent, mcp_server, allowed_tools})
-  end
-
-  def unassign_mcp_server(agent, mcp_server, server \\ __MODULE__) do
-    GenServer.call(server, {:unassign_mcp_server, agent, mcp_server})
-  end
-
   # -------------------------------------------------------------------
   # Client API — reads (direct, using reader connection)
   # -------------------------------------------------------------------
@@ -157,34 +137,6 @@ defmodule Hive.Persistence do
       {:ok, rows} -> {:ok, Enum.map(rows, & &1.agent)}
       error -> error
     end
-  end
-
-  def get_mcp_servers(server \\ __MODULE__) do
-    reader = get_reader(server)
-
-    query_all(reader, "SELECT name, description, command, args, env FROM mcp_servers", [], [
-      :name,
-      :description,
-      :command,
-      :args,
-      :env
-    ])
-  end
-
-  def get_agent_mcp_servers(agent, server \\ __MODULE__) do
-    reader = get_reader(server)
-
-    query_all(
-      reader,
-      """
-      SELECT ms.name, ms.description, ms.command, ms.args, ms.env, ams.allowed_tools
-      FROM agent_mcp_servers ams
-      JOIN mcp_servers ms ON ms.name = ams.mcp_server
-      WHERE ams.agent = ?1
-      """,
-      [agent],
-      [:name, :description, :command, :args, :env, :allowed_tools]
-    )
   end
 
   def name_exists?(name, server \\ __MODULE__) do
@@ -361,72 +313,6 @@ defmodule Hive.Persistence do
         content,
         agent
       ])
-
-    {:reply, result, state}
-  end
-
-  def handle_call({:create_mcp_server, name, description, command, args, env}, _from, state) do
-    args_json = Jason.encode!(args)
-    env_json = Jason.encode!(env)
-
-    result =
-      exec_write(
-        state.writer,
-        "INSERT INTO mcp_servers (name, description, command, args, env) VALUES (?1, ?2, ?3, ?4, ?5)",
-        [name, description, command, args_json, env_json]
-      )
-
-    {:reply, result, state}
-  end
-
-  def handle_call({:update_mcp_server, name, attrs}, _from, state) do
-    field_specs = [
-      {:description, "description", &Function.identity/1},
-      {:command, "command", &Function.identity/1},
-      {:args, "args", &Jason.encode!/1},
-      {:env, "env", &Jason.encode!/1}
-    ]
-
-    case build_update(attrs, field_specs) do
-      {[], _} ->
-        {:reply, {:error, :no_changes}, state}
-
-      {sets, params} ->
-        param_idx = length(params) + 1
-        sql = "UPDATE mcp_servers SET #{Enum.join(sets, ", ")} WHERE name = ?#{param_idx}"
-        result = exec_write(state.writer, sql, params ++ [name])
-        {:reply, result, state}
-    end
-  end
-
-  def handle_call({:delete_mcp_server, name}, _from, state) do
-    result = exec_write(state.writer, "DELETE FROM mcp_servers WHERE name = ?1", [name])
-    {:reply, result, state}
-  end
-
-  def handle_call({:assign_mcp_server, agent, mcp_server, allowed_tools}, _from, state) do
-    tools_json = Jason.encode!(allowed_tools)
-
-    result =
-      exec_write(
-        state.writer,
-        "INSERT OR REPLACE INTO agent_mcp_servers (agent, mcp_server, allowed_tools) VALUES (?1, ?2, ?3)",
-        [agent, mcp_server, tools_json]
-      )
-
-    {:reply, result, state}
-  end
-
-  def handle_call({:unassign_mcp_server, agent, mcp_server}, _from, state) do
-    result =
-      exec_write(
-        state.writer,
-        "DELETE FROM agent_mcp_servers WHERE agent = ?1 AND mcp_server = ?2",
-        [
-          agent,
-          mcp_server
-        ]
-      )
 
     {:reply, result, state}
   end

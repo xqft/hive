@@ -88,7 +88,6 @@ defmodule HiveWeb.ChatLiveTest do
       {:ok, _view, html} = live(conn, "/")
       assert html =~ "Overview"
       assert html =~ "Agents"
-      assert html =~ "MCP"
     end
   end
 
@@ -285,17 +284,6 @@ defmodule HiveWeb.ChatLiveTest do
       send(view.pid, {:typing, %{topic: topic, agent: "bob", typing: true}})
 
       assert has_element?(view, "#typing-indicator", "alice, bob are thinking")
-    end
-
-    test "container events update the sidebar immediately", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/")
-
-      send(view.pid, {:started, "builder", "container-123", "Run tests"})
-
-      html = render(view)
-      assert html =~ "container-123"
-      assert html =~ "Run tests"
-      assert html =~ "builder"
     end
   end
 end

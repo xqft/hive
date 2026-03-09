@@ -13,6 +13,37 @@ const resumeSessionId = process.argv[6] || null;
 const mcpConfig = JSON.parse(fs.readFileSync(mcpConfigPath, "utf8"));
 let sessionId = resumeSessionId;
 
+// ---------------------------------------------------------------------------
+// Helpers for streaming intermediate events to Elixir
+// ---------------------------------------------------------------------------
+
+function emit(obj) {
+  process.stdout.write(JSON.stringify(obj) + "\n");
+}
+
+function createDebouncer(buildMsg, delay = 100) {
+  let timer = null;
+  let accumulated = "";
+
+  function push(text) {
+    accumulated += text;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(flush, delay);
+  }
+
+  function flush() {
+    if (timer) { clearTimeout(timer); timer = null; }
+    if (accumulated) {
+      emit(buildMsg(accumulated));
+      accumulated = "";
+    }
+  }
+
+  return { push, flush };
+}
+
+// ---------------------------------------------------------------------------
+
 const rl = readline.createInterface({ input: process.stdin });
 const batcher = createBatcher(async (batch) => {
   if (batch === null) {
@@ -34,13 +65,9 @@ async function processNext(batch) {
       "mcp__hive__leave_topic", "mcp__hive__get_topic_history",
       "mcp__hive__list_agents", "mcp__hive__list_topics",
       "mcp__hive__create_agent", "mcp__hive__delete_agent",
-      "mcp__hive__execute_in_container", "mcp__hive__check_execution",
-      "mcp__hive__send_to_container", "mcp__hive__capture_container_output",
-      "mcp__hive__container_new_window", "mcp__hive__container_list_windows",
-      "mcp__hive__container_split_pane", "mcp__hive__container_list_panes",
       "mcp__hive__write_skill", "mcp__hive__read_skill", "mcp__hive__delete_skill",
       "mcp__hive__write_claude_md",
-      "mcp__hive__upload_media", "mcp__hive__extract_container_file", "mcp__hive__view_image"
+      "mcp__hive__upload_media", "mcp__hive__view_image"
     ];
 
     const extraToolPatterns = [];
@@ -73,6 +100,7 @@ async function processNext(batch) {
       model: "claude-opus-4-6",
       settings: { effortLevel: "max" },
       systemPrompt,
+      includePartialMessages: true,
       allowedTools: ["Skill", ...hiveTools, ...extraToolPatterns],
       settingSources: [],  // Don't load filesystem settings, we provide everything
       mcpServers: Object.fromEntries(
@@ -93,6 +121,20 @@ async function processNext(batch) {
       `[hive-sdk] starting turn agent=${agentName} resume_session=${sessionId || "new"}\n`
     );
 
+    // Tracking state for stream events
+    let currentToolInput = "";
+    let currentToolName = "";
+    let currentToolUseId = "";
+
+    const thinkingDebouncer = createDebouncer(
+      (text) => ({ type: "thinking", text }),
+      100
+    );
+    const textDebouncer = createDebouncer(
+      (text) => ({ type: "text", text }),
+      100
+    );
+
     for await (const event of query({ prompt: batch, options })) {
       let extra = "";
       if (event.type === "system") {
@@ -103,6 +145,47 @@ async function processNext(batch) {
         extra = ` ${JSON.stringify(event)}`;
       }
       process.stderr.write(`[hive-sdk] event: ${event.type} ${event.subtype || ""}${extra}\n`);
+
+      // --- Stream event handling (intermediate events for scratchpad) ---
+      if (event.type === "stream_event" && event.event) {
+        const raw = event.event;
+
+        if (raw.type === "content_block_start" && raw.content_block?.type === "tool_use") {
+          currentToolName = raw.content_block.name || "";
+          currentToolUseId = raw.content_block.id || "";
+          currentToolInput = "";
+          emit({ type: "tool_use_start", toolName: currentToolName, toolInput: {}, toolUseId: currentToolUseId });
+        } else if (raw.type === "content_block_delta") {
+          if (raw.delta?.type === "thinking_delta") {
+            thinkingDebouncer.push(raw.delta.thinking || "");
+          } else if (raw.delta?.type === "text_delta") {
+            textDebouncer.push(raw.delta.text || "");
+          } else if (raw.delta?.type === "input_json_delta") {
+            currentToolInput += (raw.delta.partial_json || "");
+          }
+        } else if (raw.type === "content_block_stop") {
+          // Flush any pending text/thinking
+          thinkingDebouncer.flush();
+          textDebouncer.flush();
+          // If we accumulated tool input, emit updated tool_use_start with full input
+          if (currentToolInput && currentToolUseId) {
+            let parsedInput = {};
+            try { parsedInput = JSON.parse(currentToolInput); } catch (_) {}
+            emit({ type: "tool_use_start", toolName: currentToolName, toolInput: parsedInput, toolUseId: currentToolUseId });
+          }
+          currentToolInput = "";
+          currentToolName = "";
+          currentToolUseId = "";
+        }
+      }
+
+      // --- tool_result events from SDK ---
+      if (event.type === "tool_result") {
+        const output = event.output || event.content || "";
+        emit({ type: "tool_result", toolUseId: event.toolUseId || event.tool_use_id || "", output: typeof output === "string" ? output : JSON.stringify(output) });
+      }
+
+      // --- Existing session / result handling ---
       const nextSessionId = event.sessionId || event.session_id;
 
       if (nextSessionId && nextSessionId !== sessionId) {
@@ -116,6 +199,10 @@ async function processNext(batch) {
       }
 
       if (event.type === "result") {
+        // Flush any remaining debounced content at end of turn
+        thinkingDebouncer.flush();
+        textDebouncer.flush();
+
         if (event.is_error) {
           process.stdout.write(
             JSON.stringify({ type: "error", message: event.result || "unknown SDK error" }) + "\n"

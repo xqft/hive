@@ -16,12 +16,8 @@ defmodule HiveWeb.ToolsController do
     send_message send_dm create_topic join_topic leave_topic
     get_topic_history list_agents list_topics
     create_agent delete_agent
-    execute_in_container check_execution
-    send_to_container capture_container_output
-    container_new_window container_list_windows
-    container_split_pane container_list_panes
     write_skill read_skill delete_skill write_claude_md
-    upload_media extract_container_file view_image
+    upload_media view_image
   )
 
   def call_tool(conn, %{"agent" => agent, "tool" => tool, "params" => params}) do
@@ -256,54 +252,6 @@ defmodule HiveWeb.ToolsController do
     end
   end
 
-  defp execute_tool(agent, "execute_in_container", params) do
-    case Hive.Container.start(agent, params) do
-      {:ok, container_id} ->
-        {:ok,
-         "Container #{container_id} launched with an empty bash shell. Use send_to_container to run commands."}
-
-      {:error, msg} ->
-        {:error, msg}
-    end
-  end
-
-  defp execute_tool(_agent, "check_execution", %{"container_id" => id}) do
-    Hive.Container.check(id)
-  end
-
-  defp execute_tool(_agent, "send_to_container", %{"container_id" => id} = params) do
-    Hive.Container.send_input(id, params)
-  end
-
-  defp execute_tool(_agent, "capture_container_output", %{"container_id" => id} = params) do
-    Hive.Container.capture_output(id, params)
-  end
-
-  defp execute_tool(
-         _agent,
-         "container_new_window",
-         %{"container_id" => id, "name" => name} = params
-       ) do
-    Hive.Container.new_window(id, name, params["command"])
-  end
-
-  defp execute_tool(_agent, "container_list_windows", %{"container_id" => id}) do
-    Hive.Container.list_windows(id)
-  end
-
-  defp execute_tool(_agent, "container_split_pane", %{"container_id" => id} = params) do
-    Hive.Container.split_pane(
-      id,
-      Map.get(params, "direction", "vertical"),
-      Map.get(params, "window", "0"),
-      params["command"]
-    )
-  end
-
-  defp execute_tool(_agent, "container_list_panes", %{"container_id" => id} = params) do
-    Hive.Container.list_panes(id, Map.get(params, "window", "0"))
-  end
-
   defp execute_tool(agent, "write_skill", %{"name" => name, "content" => content}) do
     with :ok <- Hive.Validation.validate_name(name) do
       dir = Path.join(["priv", "agents", agent, ".claude", "skills", name])
@@ -348,13 +296,6 @@ defmodule HiveWeb.ToolsController do
     else
       :error -> {:error, "invalid base64 data"}
       {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp execute_tool(_agent, "extract_container_file", %{"container_id" => id, "path" => path}) do
-    with {:ok, data, media_type} <- Hive.Container.extract_file(id, path),
-         {:ok, url} <- Hive.Media.save(data, media_type) do
-      {:ok, url}
     end
   end
 
@@ -482,54 +423,74 @@ defmodule HiveWeb.ToolsController do
   # Mid-turn steering: surface new messages before the agent sends
   # ---------------------------------------------------------------------------
 
+  # Only steer when:
+  # 1. The agent is composing for this specific channel (same-channel check)
+  # 2. The agent hasn't already been steered this turn (once-per-turn)
+  # 3. New messages from others arrived after composing started
   defp check_steering(agent, topic) do
-    composing_since = agent_composing_since(agent)
+    {active_channel, composing_since, steered} = agent_steering_info(agent)
 
-    if is_nil(composing_since) do
-      :ok
-    else
-      new_messages =
-        topic
-        |> Hive.Topic.recent(10)
-        |> Enum.filter(fn msg ->
-          msg.sender != agent and DateTime.compare(msg.ts, composing_since) == :gt
-        end)
+    target_channel = channel_tuple(topic)
 
-      if new_messages == [] do
+    cond do
+      # Not composing, or composing for a different channel — skip
+      is_nil(composing_since) or active_channel != target_channel ->
         :ok
-      else
-        # Advance composing_since so the next send_message goes through
-        notify_steering_delivered(agent)
 
-        formatted =
-          new_messages
-          |> Enum.reverse()
-          |> Enum.map_join("\n", fn msg ->
-            "[#{format_history_timestamp(msg.ts)}] #{msg.sender} (#{sender_kind(msg.sender)}): #{msg.body}"
+      # Already steered once this turn — let it through
+      steered ->
+        :ok
+
+      true ->
+        new_messages =
+          topic
+          |> Hive.Topic.recent(10)
+          |> Enum.filter(fn msg ->
+            msg.sender != agent and
+              DateTime.compare(ensure_datetime(msg.ts), composing_since) == :gt
           end)
 
-        {:error,
-         "HOLD — new messages arrived in #{topic} while you were composing. " <>
-           "Review them before sending:\n#{formatted}\n\n" <>
-           "Reconsider your message. Call send_message again (same or updated text) when ready."}
-      end
+        if new_messages == [] do
+          :ok
+        else
+          notify_steering_delivered(agent)
+
+          formatted =
+            new_messages
+            |> Enum.reverse()
+            |> Enum.map_join("\n", fn msg ->
+              "[#{format_history_timestamp(msg.ts)}] #{msg.sender} (#{sender_kind(msg.sender)}): #{msg.body}"
+            end)
+
+          {:error,
+           "HOLD — new messages arrived in #{topic} while you were composing. " <>
+             "Review them before sending:\n#{formatted}\n\n" <>
+             "Decide: adjust your message, wait for the conversation to settle, " <>
+             "or send as-is by calling send_message again."}
+        end
     end
   end
 
-  defp agent_composing_since(agent) do
-    overrides = Application.get_env(:hive, :agent_composing_since_overrides, %{})
+  defp agent_steering_info(agent) do
+    overrides = Application.get_env(:hive, :agent_steering_overrides, %{})
 
     case Map.get(overrides, agent) do
       nil ->
         try do
-          Hive.Agent.composing_since(agent)
+          Hive.Agent.steering_info(agent)
         catch
-          :exit, _ -> nil
+          :exit, _ -> {nil, nil, false}
         end
 
       override ->
         override
     end
+  end
+
+  defp channel_tuple(topic) do
+    if String.starts_with?(topic, "dm:"),
+      do: {"dm", topic},
+      else: {"topic", topic}
   end
 
   defp notify_steering_delivered(agent) do
@@ -538,4 +499,22 @@ defmodule HiveWeb.ToolsController do
       [] -> :ok
     end
   end
+
+  defp ensure_datetime(%DateTime{} = dt), do: dt
+
+  defp ensure_datetime(str) when is_binary(str) do
+    case DateTime.from_iso8601(str) do
+      {:ok, dt, _} ->
+        dt
+
+      {:error, _} ->
+        # SQLite timestamps are "YYYY-MM-DD HH:MM:SS" (no timezone)
+        case NaiveDateTime.from_iso8601(str) do
+          {:ok, ndt} -> DateTime.from_naive!(ndt, "Etc/UTC")
+          {:error, _} -> DateTime.utc_now()
+        end
+    end
+  end
+
+  defp ensure_datetime(_), do: DateTime.utc_now()
 end

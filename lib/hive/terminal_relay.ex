@@ -40,11 +40,12 @@ defmodule Hive.TerminalRelay do
     viewer = Keyword.fetch!(opts, :viewer)
     cols = Keyword.get(opts, :cols, 120)
     rows = Keyword.get(opts, :rows, 35)
+    session = Keyword.get(opts, :session, "main")
 
     # Monitor the viewer (LiveView process) so we terminate when it disconnects
     Process.monitor(viewer)
 
-    port = open_port(container_id, cols, rows)
+    port = open_port(container_id, cols, rows, session)
 
     {:ok,
      %{
@@ -52,7 +53,8 @@ defmodule Hive.TerminalRelay do
        container_id: container_id,
        viewer: viewer,
        cols: cols,
-       rows: rows
+       rows: rows,
+       session: session
      }}
   end
 
@@ -80,7 +82,7 @@ defmodule Hive.TerminalRelay do
       end
 
       # Open new port with correct PTY dimensions
-      port = open_port(state.container_id, cols, rows)
+      port = open_port(state.container_id, cols, rows, state.session)
 
       {:noreply, %{state | port: port, cols: cols, rows: rows}}
     end
@@ -126,14 +128,14 @@ defmodule Hive.TerminalRelay do
   # Private
   # ---------------------------------------------------------------------------
 
-  defp open_port(container_id, cols, rows) do
+  defp open_port(container_id, cols, rows, session) do
     docker = docker_executable()
     script = System.find_executable("script") || "/usr/bin/script"
 
     # Use stty to set the PTY size before attaching to tmux.
     # This ensures tmux sees the correct client dimensions.
     cmd =
-      "stty cols #{cols} rows #{rows} 2>/dev/null; exec #{docker} exec -it #{container_id} tmux attach -t main"
+      "stty cols #{cols} rows #{rows} 2>/dev/null; exec #{docker} exec -it #{container_id} tmux attach -t #{session}"
 
     Port.open(
       {:spawn_executable, script},

@@ -5,20 +5,17 @@ defmodule HiveWeb.DashboardLive do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Hive.PubSub, "agents")
-      Phoenix.PubSub.subscribe(Hive.PubSub, "containers")
       Phoenix.PubSub.subscribe(Hive.PubSub, "registry")
     end
 
     agents = load_agents()
     statuses = build_status_map(agents)
-    containers = load_containers()
 
     {:ok,
      assign(socket,
        page_title: "Dashboard",
        agents: agents,
-       statuses: statuses,
-       containers: containers
+       statuses: statuses
      )}
   end
 
@@ -47,11 +44,6 @@ defmodule HiveWeb.DashboardLive do
                 {Enum.count(@statuses, fn {_name, status} -> status == :thinking end)}
               </p>
               <p class="ui-helper-text">Agents actively working right now.</p>
-            </div>
-            <div class="ui-card ui-card--stat">
-              <p class="ui-section-label">Containers</p>
-              <p class="ui-metric">{length(@containers)}</p>
-              <p class="ui-helper-text">Running containers tied to active jobs.</p>
             </div>
           </section>
 
@@ -85,42 +77,6 @@ defmodule HiveWeb.DashboardLive do
               </div>
             </div>
           </section>
-
-          <section class="ui-card ui-stack">
-            <.header>
-              Active containers
-              <:subtitle>Runtime tasks with immediate kill and inspect actions.</:subtitle>
-            </.header>
-            <div :if={@containers == []} class="ui-empty">No active containers.</div>
-            <div class="grid gap-4 lg:grid-cols-2">
-              <div :for={c <- @containers} class="ui-card ui-stack">
-                <div class="ui-section-row">
-                  <.link
-                    navigate={~p"/containers/#{c.id}"}
-                    class="font-mono text-sm text-[var(--ui-text-strong)]"
-                  >
-                    {c.id}
-                  </.link>
-                  <span class="ui-pill">{c.agent}</span>
-                </div>
-                <p class="text-sm text-[var(--ui-text-soft)]">{c.task}</p>
-                <div class="ui-section-row">
-                  <.button
-                    variant="danger"
-                    size="sm"
-                    phx-click="kill_container"
-                    phx-value-id={c.id}
-                    data-confirm={"Kill container #{c.id}?"}
-                  >
-                    Kill
-                  </.button>
-                  <.button navigate={~p"/containers/#{c.id}"} variant="ghost" size="sm">
-                    View output
-                  </.button>
-                </div>
-              </div>
-            </div>
-          </section>
         </div>
       </.app_shell>
     </Layouts.app>
@@ -143,17 +99,6 @@ defmodule HiveWeb.DashboardLive do
   def handle_info({:status, name, status}, socket) do
     statuses = Map.put(socket.assigns.statuses, name, status)
     {:noreply, assign(socket, :statuses, statuses)}
-  end
-
-  def handle_info({:started, agent, id, task}, socket) do
-    container = %{id: id, agent: agent, task: task}
-    containers = socket.assigns.containers ++ [container]
-    {:noreply, assign(socket, :containers, containers)}
-  end
-
-  def handle_info({:stopped, id, _reason}, socket) do
-    containers = Enum.reject(socket.assigns.containers, &(&1.id == id))
-    {:noreply, assign(socket, :containers, containers)}
   end
 
   def handle_info({:agent_created, _name}, socket) do
@@ -196,11 +141,6 @@ defmodule HiveWeb.DashboardLive do
     {:noreply, socket}
   end
 
-  def handle_event("kill_container", %{"id" => id}, socket) do
-    Hive.Container.kill(id)
-    {:noreply, socket}
-  end
-
   # -- Data loading ------------------------------------------------------------
 
   defp load_agents do
@@ -220,28 +160,6 @@ defmodule HiveWeb.DashboardLive do
         end
 
       {agent.name, status}
-    end)
-  end
-
-  defp load_containers do
-    # Walk the ContainerRegistry to find all running containers
-    Registry.select(Hive.ContainerRegistry, [
-      {{:"$1", :"$2", :"$3"}, [], [{{:"$1", :"$3"}}]}
-    ])
-    |> Enum.map(fn {id, agent_name} ->
-      task =
-        try do
-          {:ok, status_string} = Hive.Container.check(id)
-          # Extract just the task line from the status string
-          status_string
-          |> String.split("\n")
-          |> Enum.find("", &String.starts_with?(&1, "Task: "))
-          |> String.replace_prefix("Task: ", "")
-        catch
-          _, _ -> ""
-        end
-
-      %{id: id, agent: agent_name, task: task}
     end)
   end
 end

@@ -158,9 +158,8 @@ defmodule HiveWeb.ToolsControllerTest do
         send_message send_dm create_topic join_topic leave_topic
         get_topic_history list_agents list_topics
         create_agent delete_agent
-        execute_in_container check_execution
         write_skill read_skill delete_skill write_claude_md
-        upload_media extract_container_file view_image
+        upload_media view_image
       )
 
       for tool <- known_tools do
@@ -611,71 +610,6 @@ defmodule HiveWeb.ToolsControllerTest do
     end
   end
 
-  describe "execute_in_container" do
-    setup do
-      put_hive_env(:container_docker_available, true)
-      put_hive_env(:container_image_available, true)
-      put_hive_env(:claude_oauth_token, "test-oauth-token")
-      :ok
-    end
-
-    test "accepts empty task as interactive session", %{conn: conn} do
-      body =
-        conn
-        |> tool_call("test-agent", "execute_in_container", %{"task" => "   "})
-        |> json_response(200)
-
-      assert body["ok"] == true
-    end
-
-    test "rejects timeout outside allowed bounds", %{conn: conn} do
-      body =
-        conn
-        |> tool_call("test-agent", "execute_in_container", %{
-          "task" => "run tests",
-          "timeout_minutes" => 0
-        })
-        |> json_response(200)
-
-      assert body["ok"] == false
-      assert body["error"] =~ "timeout_minutes must be between 1 and 60"
-    end
-
-    test "rejects when docker is unavailable", %{conn: conn} do
-      put_hive_env(:container_docker_available, false)
-
-      body =
-        conn
-        |> tool_call("test-agent", "execute_in_container", %{"task" => "run tests"})
-        |> json_response(200)
-
-      assert body == %{"ok" => false, "error" => "docker is not installed or not on PATH"}
-    end
-
-    test "rejects when image is unavailable", %{conn: conn} do
-      put_hive_env(:container_image_available, false)
-
-      body =
-        conn
-        |> tool_call("test-agent", "execute_in_container", %{"task" => "run tests"})
-        |> json_response(200)
-
-      assert body["ok"] == false
-      assert body["error"] =~ "container image hive-claude-code:latest is not available locally"
-    end
-
-    test "rejects when oauth token is missing", %{conn: conn} do
-      put_hive_env(:claude_oauth_token, nil)
-
-      body =
-        conn
-        |> tool_call("test-agent", "execute_in_container", %{"task" => "run tests"})
-        |> json_response(200)
-
-      assert body == %{"ok" => false, "error" => "CLAUDE_CODE_OAUTH_TOKEN is not configured"}
-    end
-  end
-
   # ---------------------------------------------------------------------------
   # create_topic (requires persistence + TopicSup)
   # ---------------------------------------------------------------------------
@@ -817,13 +751,15 @@ defmodule HiveWeb.ToolsControllerTest do
       {:ok, conn: conn, topic_name: topic_name}
     end
 
-    test "blocks send_message when new messages arrived since composing started",
+    test "blocks first send_message when new messages arrived since composing started",
          %{conn: conn, topic_name: topic_name} do
-      # Agent started composing BEFORE the new message
       composing_since = DateTime.utc_now()
-      put_hive_env(:agent_composing_since_overrides, %{"test-agent" => composing_since})
 
-      # Another agent posts a message AFTER composing started
+      put_hive_env(:agent_steering_overrides, %{
+        "test-agent" => {{"topic", topic_name}, composing_since, false}
+      })
+
+      # Another agent posts after composing started
       Process.sleep(10)
       Hive.Topic.post(topic_name, "other-agent", "actually, wait — I already handled it")
 
@@ -838,11 +774,76 @@ defmodule HiveWeb.ToolsControllerTest do
       assert body["ok"] == false
       assert body["error"] =~ "HOLD"
       assert body["error"] =~ "actually, wait"
-      assert body["error"] =~ "Reconsider"
 
       # Message should NOT have been sent
       recent = Hive.Topic.recent(topic_name, 10)
       refute Enum.any?(recent, fn m -> m.body == "I'll take care of it" end)
+    end
+
+    test "allows second send_message after steering (steered=true)",
+         %{conn: conn, topic_name: topic_name} do
+      composing_since = DateTime.utc_now()
+
+      # Simulate: already steered once this turn
+      put_hive_env(:agent_steering_overrides, %{
+        "test-agent" => {{"topic", topic_name}, composing_since, true}
+      })
+
+      # New messages present — but steered=true so we skip
+      Process.sleep(10)
+      Hive.Topic.post(topic_name, "other-agent", "more chatter")
+
+      body =
+        conn
+        |> tool_call("test-agent", "send_message", %{
+          topic: topic_name,
+          text: "sending anyway"
+        })
+        |> json_response(200)
+
+      assert body["ok"] == true
+      assert body["result"] =~ "Message sent"
+    end
+
+    test "skips steering when sending to a different channel than active",
+         %{conn: conn, topic_name: topic_name} do
+      other_topic = unique("other-topic")
+      :ok = Hive.Persistence.create_topic(other_topic, "other", "topic", "test-agent")
+
+      start_supervised!(
+        {Hive.Topic,
+         name: other_topic, description: "other", type: :topic, created_by: "test-agent"},
+        id: :other_topic
+      )
+
+      Hive.Topic.join(other_topic, "test-agent")
+
+      composing_since = DateTime.utc_now()
+
+      # Active channel is topic_name, but we're sending to other_topic
+      put_hive_env(:agent_steering_overrides, %{
+        "test-agent" => {{"topic", topic_name}, composing_since, false}
+      })
+
+      # Override active channel to allow sending to other_topic
+      put_hive_env(:agent_active_channel_overrides, %{
+        "test-agent" => nil
+      })
+
+      Process.sleep(10)
+      Hive.Topic.post(other_topic, "someone", "noise in other topic")
+
+      body =
+        conn
+        |> tool_call("test-agent", "send_message", %{
+          topic: other_topic,
+          text: "cross-topic message"
+        })
+        |> json_response(200)
+
+      assert body["ok"] == true
+
+      on_exit(fn -> Hive.Persistence.delete_topic(other_topic) end)
     end
 
     test "allows send_message when no new messages since composing started",
@@ -851,9 +852,11 @@ defmodule HiveWeb.ToolsControllerTest do
       Hive.Topic.post(topic_name, "other-agent", "old message")
       Process.sleep(10)
 
-      # Agent starts composing AFTER the message
       composing_since = DateTime.utc_now()
-      put_hive_env(:agent_composing_since_overrides, %{"test-agent" => composing_since})
+
+      put_hive_env(:agent_steering_overrides, %{
+        "test-agent" => {{"topic", topic_name}, composing_since, false}
+      })
 
       body =
         conn
@@ -870,9 +873,12 @@ defmodule HiveWeb.ToolsControllerTest do
     test "ignores agent's own messages for steering",
          %{conn: conn, topic_name: topic_name} do
       composing_since = DateTime.utc_now()
-      put_hive_env(:agent_composing_since_overrides, %{"test-agent" => composing_since})
 
-      # Agent's own message posted during composing — should not trigger steering
+      put_hive_env(:agent_steering_overrides, %{
+        "test-agent" => {{"topic", topic_name}, composing_since, false}
+      })
+
+      # Agent's own message — should not trigger steering
       Process.sleep(10)
       Hive.Topic.post(topic_name, "test-agent", "my earlier message")
 
@@ -885,13 +891,11 @@ defmodule HiveWeb.ToolsControllerTest do
         |> json_response(200)
 
       assert body["ok"] == true
-      assert body["result"] =~ "Message sent"
     end
 
     test "skips steering when composing_since is nil (not composing)",
          %{conn: conn, topic_name: topic_name} do
-      # No composing_since override — defaults to nil (no Agent GenServer)
-      put_hive_env(:agent_composing_since_overrides, %{})
+      put_hive_env(:agent_steering_overrides, %{})
 
       Hive.Topic.post(topic_name, "other-agent", "some message")
 
