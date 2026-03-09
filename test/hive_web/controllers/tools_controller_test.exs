@@ -817,13 +817,15 @@ defmodule HiveWeb.ToolsControllerTest do
       {:ok, conn: conn, topic_name: topic_name}
     end
 
-    test "blocks send_message when new messages arrived since composing started",
+    test "blocks first send_message when new messages arrived since composing started",
          %{conn: conn, topic_name: topic_name} do
-      # Agent started composing BEFORE the new message
       composing_since = DateTime.utc_now()
-      put_hive_env(:agent_composing_since_overrides, %{"test-agent" => composing_since})
 
-      # Another agent posts a message AFTER composing started
+      put_hive_env(:agent_steering_overrides, %{
+        "test-agent" => {{"topic", topic_name}, composing_since, false}
+      })
+
+      # Another agent posts after composing started
       Process.sleep(10)
       Hive.Topic.post(topic_name, "other-agent", "actually, wait — I already handled it")
 
@@ -838,11 +840,76 @@ defmodule HiveWeb.ToolsControllerTest do
       assert body["ok"] == false
       assert body["error"] =~ "HOLD"
       assert body["error"] =~ "actually, wait"
-      assert body["error"] =~ "Reconsider"
 
       # Message should NOT have been sent
       recent = Hive.Topic.recent(topic_name, 10)
       refute Enum.any?(recent, fn m -> m.body == "I'll take care of it" end)
+    end
+
+    test "allows second send_message after steering (steered=true)",
+         %{conn: conn, topic_name: topic_name} do
+      composing_since = DateTime.utc_now()
+
+      # Simulate: already steered once this turn
+      put_hive_env(:agent_steering_overrides, %{
+        "test-agent" => {{"topic", topic_name}, composing_since, true}
+      })
+
+      # New messages present — but steered=true so we skip
+      Process.sleep(10)
+      Hive.Topic.post(topic_name, "other-agent", "more chatter")
+
+      body =
+        conn
+        |> tool_call("test-agent", "send_message", %{
+          topic: topic_name,
+          text: "sending anyway"
+        })
+        |> json_response(200)
+
+      assert body["ok"] == true
+      assert body["result"] =~ "Message sent"
+    end
+
+    test "skips steering when sending to a different channel than active",
+         %{conn: conn, topic_name: topic_name} do
+      other_topic = unique("other-topic")
+      :ok = Hive.Persistence.create_topic(other_topic, "other", "topic", "test-agent")
+
+      start_supervised!(
+        {Hive.Topic,
+         name: other_topic, description: "other", type: :topic, created_by: "test-agent"},
+        id: :other_topic
+      )
+
+      Hive.Topic.join(other_topic, "test-agent")
+
+      composing_since = DateTime.utc_now()
+
+      # Active channel is topic_name, but we're sending to other_topic
+      put_hive_env(:agent_steering_overrides, %{
+        "test-agent" => {{"topic", topic_name}, composing_since, false}
+      })
+
+      # Override active channel to allow sending to other_topic
+      put_hive_env(:agent_active_channel_overrides, %{
+        "test-agent" => nil
+      })
+
+      Process.sleep(10)
+      Hive.Topic.post(other_topic, "someone", "noise in other topic")
+
+      body =
+        conn
+        |> tool_call("test-agent", "send_message", %{
+          topic: other_topic,
+          text: "cross-topic message"
+        })
+        |> json_response(200)
+
+      assert body["ok"] == true
+
+      on_exit(fn -> Hive.Persistence.delete_topic(other_topic) end)
     end
 
     test "allows send_message when no new messages since composing started",
@@ -851,9 +918,11 @@ defmodule HiveWeb.ToolsControllerTest do
       Hive.Topic.post(topic_name, "other-agent", "old message")
       Process.sleep(10)
 
-      # Agent starts composing AFTER the message
       composing_since = DateTime.utc_now()
-      put_hive_env(:agent_composing_since_overrides, %{"test-agent" => composing_since})
+
+      put_hive_env(:agent_steering_overrides, %{
+        "test-agent" => {{"topic", topic_name}, composing_since, false}
+      })
 
       body =
         conn
@@ -870,9 +939,12 @@ defmodule HiveWeb.ToolsControllerTest do
     test "ignores agent's own messages for steering",
          %{conn: conn, topic_name: topic_name} do
       composing_since = DateTime.utc_now()
-      put_hive_env(:agent_composing_since_overrides, %{"test-agent" => composing_since})
 
-      # Agent's own message posted during composing — should not trigger steering
+      put_hive_env(:agent_steering_overrides, %{
+        "test-agent" => {{"topic", topic_name}, composing_since, false}
+      })
+
+      # Agent's own message — should not trigger steering
       Process.sleep(10)
       Hive.Topic.post(topic_name, "test-agent", "my earlier message")
 
@@ -885,13 +957,11 @@ defmodule HiveWeb.ToolsControllerTest do
         |> json_response(200)
 
       assert body["ok"] == true
-      assert body["result"] =~ "Message sent"
     end
 
     test "skips steering when composing_since is nil (not composing)",
          %{conn: conn, topic_name: topic_name} do
-      # No composing_since override — defaults to nil (no Agent GenServer)
-      put_hive_env(:agent_composing_since_overrides, %{})
+      put_hive_env(:agent_steering_overrides, %{})
 
       Hive.Topic.post(topic_name, "other-agent", "some message")
 

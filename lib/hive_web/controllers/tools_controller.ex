@@ -482,54 +482,73 @@ defmodule HiveWeb.ToolsController do
   # Mid-turn steering: surface new messages before the agent sends
   # ---------------------------------------------------------------------------
 
+  # Only steer when:
+  # 1. The agent is composing for this specific channel (same-channel check)
+  # 2. The agent hasn't already been steered this turn (once-per-turn)
+  # 3. New messages from others arrived after composing started
   defp check_steering(agent, topic) do
-    composing_since = agent_composing_since(agent)
+    {active_channel, composing_since, steered} = agent_steering_info(agent)
 
-    if is_nil(composing_since) do
-      :ok
-    else
-      new_messages =
-        topic
-        |> Hive.Topic.recent(10)
-        |> Enum.filter(fn msg ->
-          msg.sender != agent and DateTime.compare(msg.ts, composing_since) == :gt
-        end)
+    target_channel = channel_tuple(topic)
 
-      if new_messages == [] do
+    cond do
+      # Not composing, or composing for a different channel — skip
+      is_nil(composing_since) or active_channel != target_channel ->
         :ok
-      else
-        # Advance composing_since so the next send_message goes through
-        notify_steering_delivered(agent)
 
-        formatted =
-          new_messages
-          |> Enum.reverse()
-          |> Enum.map_join("\n", fn msg ->
-            "[#{format_history_timestamp(msg.ts)}] #{msg.sender} (#{sender_kind(msg.sender)}): #{msg.body}"
+      # Already steered once this turn — let it through
+      steered ->
+        :ok
+
+      true ->
+        new_messages =
+          topic
+          |> Hive.Topic.recent(10)
+          |> Enum.filter(fn msg ->
+            msg.sender != agent and DateTime.compare(msg.ts, composing_since) == :gt
           end)
 
-        {:error,
-         "HOLD — new messages arrived in #{topic} while you were composing. " <>
-           "Review them before sending:\n#{formatted}\n\n" <>
-           "Reconsider your message. Call send_message again (same or updated text) when ready."}
-      end
+        if new_messages == [] do
+          :ok
+        else
+          notify_steering_delivered(agent)
+
+          formatted =
+            new_messages
+            |> Enum.reverse()
+            |> Enum.map_join("\n", fn msg ->
+              "[#{format_history_timestamp(msg.ts)}] #{msg.sender} (#{sender_kind(msg.sender)}): #{msg.body}"
+            end)
+
+          {:error,
+           "HOLD — new messages arrived in #{topic} while you were composing. " <>
+             "Review them before sending:\n#{formatted}\n\n" <>
+             "Decide: adjust your message, wait for the conversation to settle, " <>
+             "or send as-is by calling send_message again."}
+        end
     end
   end
 
-  defp agent_composing_since(agent) do
-    overrides = Application.get_env(:hive, :agent_composing_since_overrides, %{})
+  defp agent_steering_info(agent) do
+    overrides = Application.get_env(:hive, :agent_steering_overrides, %{})
 
     case Map.get(overrides, agent) do
       nil ->
         try do
-          Hive.Agent.composing_since(agent)
+          Hive.Agent.steering_info(agent)
         catch
-          :exit, _ -> nil
+          :exit, _ -> {nil, nil, false}
         end
 
       override ->
         override
     end
+  end
+
+  defp channel_tuple(topic) do
+    if String.starts_with?(topic, "dm:"),
+      do: {"dm", topic},
+      else: {"topic", topic}
   end
 
   defp notify_steering_delivered(agent) do

@@ -29,6 +29,7 @@ defmodule Hive.Agent do
     :active_channel,
     :typing_timer,
     :composing_since,
+    steered: false,
     line_buffer: ""
   ]
 
@@ -78,9 +79,13 @@ defmodule Hive.Agent do
     GenServer.call(via(agent_name), :active_channel)
   end
 
-  @doc "Get the timestamp when the agent started composing for its current channel, or nil."
-  def composing_since(agent_name) do
-    GenServer.call(via(agent_name), :composing_since)
+  @doc """
+  Get steering info for the agent: `{active_channel, composing_since, steered}` or nil.
+
+  Used by ToolsController to decide whether to surface new messages before sending.
+  """
+  def steering_info(agent_name) do
+    GenServer.call(via(agent_name), :steering_info)
   end
 
   @doc "Stop the agent gracefully."
@@ -213,8 +218,8 @@ defmodule Hive.Agent do
     {:reply, state.active_channel, state}
   end
 
-  def handle_call(:composing_since, _from, state) do
-    {:reply, state.composing_since, state}
+  def handle_call(:steering_info, _from, state) do
+    {:reply, {state.active_channel, state.composing_since, state.steered}, state}
   end
 
   # -- Casts ----------------------------------------------------------------
@@ -264,7 +269,7 @@ defmodule Hive.Agent do
   end
 
   def handle_info(:steering_delivered, state) do
-    {:noreply, %{state | composing_since: DateTime.utc_now()}}
+    {:noreply, %{state | steered: true}}
   end
 
   # -- Info: @mention invite from Topic ------------------------------------
@@ -375,7 +380,7 @@ defmodule Hive.Agent do
 
   def handle_info(:typing_grace_expired, state) do
     state = stop_active_typing(state, preserve_channel: true)
-    {:noreply, %{state | typing_timer: nil, composing_since: nil}}
+    {:noreply, %{state | typing_timer: nil, composing_since: nil, steered: false}}
   end
 
   def handle_info(msg, state) do
@@ -722,11 +727,16 @@ defmodule Hive.Agent do
       state
     else
       channel = {channel_type, channel_name}
+      same_channel = state.active_channel == channel
+
       # Preserve composing_since if we're already composing for this channel
       composing_since =
-        if state.active_channel == channel and state.composing_since,
+        if same_channel and state.composing_since,
           do: state.composing_since,
           else: DateTime.utc_now()
+
+      # Reset steered flag when switching channels
+      steered = if same_channel, do: state.steered, else: false
 
       # Cancel any pending grace timer since we're starting new activity
       state = cancel_typing_timer(state)
@@ -737,7 +747,7 @@ defmodule Hive.Agent do
         {:typing, %{topic: channel_name, agent: state.name, typing: true}}
       )
 
-      %{next_state | active_channel: channel, composing_since: composing_since}
+      %{next_state | active_channel: channel, composing_since: composing_since, steered: steered}
     end
   end
 
@@ -767,7 +777,7 @@ defmodule Hive.Agent do
     if Keyword.get(opts, :preserve_channel, false) do
       state
     else
-      %{state | active_channel: nil, composing_since: nil}
+      %{state | active_channel: nil, composing_since: nil, steered: false}
     end
   end
 
