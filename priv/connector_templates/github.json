@@ -1,0 +1,17 @@
+{
+  "slug": "github",
+  "name": "GitHub",
+  "description": "GitHub integration — issues, PRs, repos via MCP + webhook events",
+  "config_schema": {
+    "github_token": {"label": "Personal Access Token", "secret": true, "required": true}
+  },
+  "mcp": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-github"],
+    "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "{{github_token}}"}
+  },
+  "event": {
+    "type": "webhook",
+    "default_topic": "github-events"
+  }
+}

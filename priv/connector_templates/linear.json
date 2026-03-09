@@ -1,0 +1,17 @@
+{
+  "slug": "linear",
+  "name": "Linear",
+  "description": "Linear project management — issues, projects, teams via MCP + webhook events",
+  "config_schema": {
+    "linear_api_key": {"label": "API Key", "secret": true, "required": true}
+  },
+  "mcp": {
+    "command": "npx",
+    "args": ["-y", "@anthropic/mcp-server-linear"],
+    "env": {"LINEAR_API_KEY": "{{linear_api_key}}"}
+  },
+  "event": {
+    "type": "webhook",
+    "default_topic": "linear-events"
+  }
+}

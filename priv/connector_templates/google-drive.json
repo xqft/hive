@@ -1,0 +1,22 @@
+{
+  "slug": "google-drive",
+  "name": "Google Drive",
+  "description": "Google Drive — file access, search, metadata via MCP + poll for changes",
+  "config_schema": {
+    "credentials_path": {"label": "Service Account JSON Path", "secret": false, "required": true}
+  },
+  "mcp": {
+    "command": "npx",
+    "args": ["-y", "@anthropic/mcp-server-gdrive"],
+    "env": {"GOOGLE_APPLICATION_CREDENTIALS": "{{credentials_path}}"}
+  },
+  "event": {
+    "type": "poll",
+    "default_topic": "gdrive-events",
+    "config": {
+      "command": "echo",
+      "args": ["gdrive-poll-placeholder"],
+      "interval_ms": 300000
+    }
+  }
+}
