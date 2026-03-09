@@ -27,7 +27,8 @@ config :hive,
   secret_key_base:
     System.get_env("HIVE_SECRET_KEY_BASE") ||
       "dev-secret-key-base-change-me-in-production-at-least-64-bytes-long-ok",
-  claude_oauth_token: System.get_env("CLAUDE_CODE_OAUTH_TOKEN")
+  claude_oauth_token: System.get_env("CLAUDE_CODE_OAUTH_TOKEN"),
+  anthropic_api_key: System.get_env("ANTHROPIC_API_KEY")
 
 if config_env() == :prod do
   # The secret key base is used to sign/encrypt cookies and other secrets.
