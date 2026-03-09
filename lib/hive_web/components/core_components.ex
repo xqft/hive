@@ -186,6 +186,17 @@ defmodule HiveWeb.CoreComponents do
         </main>
       </div>
     </div>
+
+    <nav class="ui-bottom-nav" aria-label="Mobile navigation">
+      <.link
+        :for={item <- @nav_items}
+        navigate={item.href}
+        class={["ui-bottom-nav__item", @current == item.key && "is-active"]}
+      >
+        <.icon name={item.icon} class="size-5" />
+        <span class="ui-bottom-nav__label">{item.label}</span>
+      </.link>
+    </nav>
     """
   end
 

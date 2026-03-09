@@ -1,7 +1,7 @@
 -include .env
 export
 
-.PHONY: setup deps compile test test-sdk test-docker server iex docker-build clean
+.PHONY: setup deps compile test test-sdk test-e2e test-all test-docker server iex docker-build clean
 
 # Full project setup
 setup: deps
@@ -25,6 +25,15 @@ test:
 # Run JS SDK tests
 test-sdk:
 	cd sdk && npm test
+
+# Run Playwright e2e tests
+test-e2e:
+	npm install
+	npx playwright install chromium webkit
+	npx playwright test
+
+# Run all tests
+test-all: test test-sdk test-e2e
 
 # Build and verify Docker image
 test-docker:

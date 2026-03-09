@@ -58,6 +58,7 @@ defmodule HiveWeb.ChatLive do
       |> assign(:typing_agents, [])
       |> assign(:aside_open, false)
       |> assign(:aside_tab, "members")
+      |> assign(:mobile_topics_open, false)
       |> assign(:scratchpad_agent, nil)
       |> assign(:scratchpad_events, [])
       |> allow_upload(:media,
@@ -78,128 +79,34 @@ defmodule HiveWeb.ChatLive do
         title={page_heading(@active_topic)}
       >
         <:sidebar_extra>
-          <div class="ui-chat-groups">
-            <section class="ui-stack">
-              <div class="ui-section-row">
-                <p class="ui-section-label">Topics</p>
-                <.button
-                  variant="ghost"
-                  size="sm"
-                  phx-click="toggle_create_topic"
-                  aria-label="New topic"
-                >
-                  <.icon name="hero-plus" class="size-4" />
-                </.button>
-              </div>
-
-              <div :if={@show_create_topic} class="ui-card">
-                <form
-                  id="create-topic-form"
-                  phx-submit="create_topic"
-                  phx-change="validate_topic_name"
-                  class="ui-stack"
-                >
-                  <input
-                    id="new-topic-name"
-                    name="name"
-                    value={@new_topic_name}
-                    placeholder="topic-name"
-                    class={["ui-input w-full", @new_topic_error && "ui-input--error"]}
-                    autocomplete="off"
-                  />
-                  <p :if={@new_topic_error} class="text-sm text-error">{@new_topic_error}</p>
-                  <div class="ui-section-row">
-                    <.button size="sm">Create</.button>
-                    <.button
-                      variant="ghost"
-                      size="sm"
-                      type="button"
-                      phx-click="toggle_create_topic"
-                    >
-                      Cancel
-                    </.button>
-                  </div>
-                </form>
-              </div>
-
-              <div id="topic-list" class="ui-topic-list">
-                <button
-                  :for={topic <- @topics}
-                  id={"topic-#{topic.name}"}
-                  phx-click="select_topic"
-                  phx-value-name={topic.name}
-                  class={["ui-topic-link", @active_topic == topic.name && "is-active"]}
-                >
-                  <span>
-                    <span class="font-medium text-[var(--ui-text-strong)]"># {topic.name}</span>
-                  </span>
-                  <span
-                    :if={unread_count(@unread_counts, topic.name) > 0}
-                    id={"topic-unread-#{topic.name}"}
-                    class="ui-pill"
-                  >
-                    {unread_count(@unread_counts, topic.name)}
-                  </span>
-                </button>
-              </div>
-            </section>
-
-            <section class="ui-stack">
-              <div class="ui-section-row">
-                <p class="ui-section-label">Direct messages</p>
-                <.button variant="ghost" size="sm" phx-click="toggle_new_dm" aria-label="New DM">
-                  <.icon name="hero-plus" class="size-4" />
-                </.button>
-              </div>
-
-              <div :if={@show_new_dm} class="ui-card ui-stack">
-                <div :if={@agents == []} class="ui-helper-text">No agents available yet.</div>
-                <button
-                  :for={agent <- @agents}
-                  id={"start-dm-#{agent.name}"}
-                  phx-click="start_dm"
-                  phx-value-name={agent.name}
-                  class="ui-topic-link"
-                >
-                  <span>
-                    <span class="font-medium text-[var(--ui-text-strong)]">{agent.name}</span>
-                    <span class="ui-topic-link__meta">Start DM</span>
-                  </span>
-                </button>
-              </div>
-
-              <div id="dm-list" class="ui-topic-list">
-                <button
-                  :for={dm <- @dms}
-                  id={"dm-#{dm.name}"}
-                  phx-click="select_topic"
-                  phx-value-name={dm.name}
-                  class={["ui-topic-link", @active_topic == dm.name && "is-active"]}
-                >
-                  <span>
-                    <span class="font-medium text-[var(--ui-text-strong)]">
-                      {dm_display_name(dm.name)}
-                    </span>
-                    <span class="ui-topic-link__meta">DM</span>
-                  </span>
-                  <span
-                    :if={unread_count(@unread_counts, dm.name) > 0}
-                    id={"dm-unread-#{dm.name}"}
-                    class="ui-pill"
-                  >
-                    {unread_count(@unread_counts, dm.name)}
-                  </span>
-                </button>
-              </div>
-            </section>
-          </div>
+          <.topics_panel
+            topics={@topics}
+            dms={@dms}
+            agents={@agents}
+            active_topic={@active_topic}
+            unread_counts={@unread_counts}
+            show_create_topic={@show_create_topic}
+            show_new_dm={@show_new_dm}
+            new_topic_name={@new_topic_name}
+            new_topic_error={@new_topic_error}
+          />
         </:sidebar_extra>
 
         <div class="ui-chat-screen">
           <div class={["ui-chat-layout", @aside_open && "ui-chat-layout--with-aside"]}>
             <section class="ui-chat-panel ui-surface">
               <div class="ui-chat-panel__header">
-                <h2 class="ui-chat-panel__title">{active_topic_label(@active_topic)}</h2>
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    phx-click="toggle_mobile_topics"
+                    class="ui-mobile-topics-btn"
+                    aria-label="Browse topics"
+                  >
+                    <.icon name="hero-bars-3" class="size-5" />
+                  </button>
+                  <h2 class="ui-chat-panel__title">{active_topic_label(@active_topic)}</h2>
+                </div>
 
                 <div class="flex items-center gap-2">
                   <button
@@ -446,6 +353,30 @@ defmodule HiveWeb.ChatLive do
             </aside>
           </div>
         </div>
+
+        <%!-- Mobile topics bottom sheet --%>
+        <div
+          :if={@mobile_topics_open}
+          class="ui-mobile-sheet-backdrop"
+          phx-click="toggle_mobile_topics"
+        >
+        </div>
+        <div :if={@mobile_topics_open} class="ui-mobile-sheet">
+          <div class="ui-mobile-sheet__handle"></div>
+          <div class="ui-mobile-sheet__content">
+            <.topics_panel
+              topics={@topics}
+              dms={@dms}
+              agents={@agents}
+              active_topic={@active_topic}
+              unread_counts={@unread_counts}
+              show_create_topic={@show_create_topic}
+              show_new_dm={@show_new_dm}
+              new_topic_name={@new_topic_name}
+              new_topic_error={@new_topic_error}
+            />
+          </div>
+        </div>
       </.app_shell>
     </Layouts.app>
     """
@@ -457,7 +388,11 @@ defmodule HiveWeb.ChatLive do
 
   @impl true
   def handle_event("select_topic", %{"name" => name}, socket) do
-    {:noreply, switch_active_topic(socket, name)}
+    {:noreply, socket |> assign(:mobile_topics_open, false) |> switch_active_topic(name)}
+  end
+
+  def handle_event("toggle_mobile_topics", _params, socket) do
+    {:noreply, assign(socket, :mobile_topics_open, !socket.assigns.mobile_topics_open)}
   end
 
   def handle_event("send_message", %{"text" => text}, socket) when text != "" do
@@ -803,6 +738,140 @@ defmodule HiveWeb.ChatLive do
   def handle_info(msg, socket) do
     Logger.debug("ChatLive unhandled message: #{inspect(msg)}")
     {:noreply, socket}
+  end
+
+  # ---------------------------------------------------------------------------
+  # Components
+  # ---------------------------------------------------------------------------
+
+  attr :topics, :list, required: true
+  attr :dms, :list, required: true
+  attr :agents, :list, required: true
+  attr :active_topic, :string, default: nil
+  attr :unread_counts, :map, required: true
+  attr :show_create_topic, :boolean, required: true
+  attr :show_new_dm, :boolean, required: true
+  attr :new_topic_name, :string, required: true
+  attr :new_topic_error, :string, default: nil
+
+  defp topics_panel(assigns) do
+    ~H"""
+    <div class="ui-chat-groups">
+      <section class="ui-stack">
+        <div class="ui-section-row">
+          <p class="ui-section-label">Topics</p>
+          <.button
+            variant="ghost"
+            size="sm"
+            phx-click="toggle_create_topic"
+            aria-label="New topic"
+          >
+            <.icon name="hero-plus" class="size-4" />
+          </.button>
+        </div>
+
+        <div :if={@show_create_topic} class="ui-card">
+          <form
+            id="create-topic-form"
+            phx-submit="create_topic"
+            phx-change="validate_topic_name"
+            class="ui-stack"
+          >
+            <input
+              id="new-topic-name"
+              name="name"
+              value={@new_topic_name}
+              placeholder="topic-name"
+              class={["ui-input w-full", @new_topic_error && "ui-input--error"]}
+              autocomplete="off"
+            />
+            <p :if={@new_topic_error} class="text-sm text-error">{@new_topic_error}</p>
+            <div class="ui-section-row">
+              <.button size="sm">Create</.button>
+              <.button
+                variant="ghost"
+                size="sm"
+                type="button"
+                phx-click="toggle_create_topic"
+              >
+                Cancel
+              </.button>
+            </div>
+          </form>
+        </div>
+
+        <div id="topic-list" class="ui-topic-list">
+          <button
+            :for={topic <- @topics}
+            id={"topic-#{topic.name}"}
+            phx-click="select_topic"
+            phx-value-name={topic.name}
+            class={["ui-topic-link", @active_topic == topic.name && "is-active"]}
+          >
+            <span>
+              <span class="font-medium text-[var(--ui-text-strong)]"># {topic.name}</span>
+            </span>
+            <span
+              :if={unread_count(@unread_counts, topic.name) > 0}
+              id={"topic-unread-#{topic.name}"}
+              class="ui-pill"
+            >
+              {unread_count(@unread_counts, topic.name)}
+            </span>
+          </button>
+        </div>
+      </section>
+
+      <section class="ui-stack">
+        <div class="ui-section-row">
+          <p class="ui-section-label">Direct messages</p>
+          <.button variant="ghost" size="sm" phx-click="toggle_new_dm" aria-label="New DM">
+            <.icon name="hero-plus" class="size-4" />
+          </.button>
+        </div>
+
+        <div :if={@show_new_dm} class="ui-card ui-stack">
+          <div :if={@agents == []} class="ui-helper-text">No agents available yet.</div>
+          <button
+            :for={agent <- @agents}
+            id={"start-dm-#{agent.name}"}
+            phx-click="start_dm"
+            phx-value-name={agent.name}
+            class="ui-topic-link"
+          >
+            <span>
+              <span class="font-medium text-[var(--ui-text-strong)]">{agent.name}</span>
+              <span class="ui-topic-link__meta">Start DM</span>
+            </span>
+          </button>
+        </div>
+
+        <div id="dm-list" class="ui-topic-list">
+          <button
+            :for={dm <- @dms}
+            id={"dm-#{dm.name}"}
+            phx-click="select_topic"
+            phx-value-name={dm.name}
+            class={["ui-topic-link", @active_topic == dm.name && "is-active"]}
+          >
+            <span>
+              <span class="font-medium text-[var(--ui-text-strong)]">
+                {dm_display_name(dm.name)}
+              </span>
+              <span class="ui-topic-link__meta">DM</span>
+            </span>
+            <span
+              :if={unread_count(@unread_counts, dm.name) > 0}
+              id={"dm-unread-#{dm.name}"}
+              class="ui-pill"
+            >
+              {unread_count(@unread_counts, dm.name)}
+            </span>
+          </button>
+        </div>
+      </section>
+    </div>
+    """
   end
 
   # ---------------------------------------------------------------------------
