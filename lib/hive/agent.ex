@@ -541,26 +541,42 @@ defmodule Hive.Agent do
 
   defp create_container(state, container_name, volume_name) do
     docker = docker_executable()
-    oauth_token = Application.get_env(:hive, :claude_oauth_token) || ""
     image = Application.get_env(:hive, :container_image_name, "hive-claude-code:latest")
+    host_credentials = Path.expand("~/.claude/.credentials.json")
 
-    args = [
-      "run",
-      "-i",
-      "--name",
-      container_name,
-      "-v",
-      "#{volume_name}:/workspace",
-      "--network",
-      "host",
-      "-e",
-      "CLAUDE_CODE_OAUTH_TOKEN=#{oauth_token}",
-      image,
-      state.name,
-      mcp_config_internal_path(),
-      "/workspace",
-      "/workspace/.hive/context.md"
-    ]
+    auth_args =
+      cond do
+        # Explicit token takes priority
+        token = Application.get_env(:hive, :claude_oauth_token) ->
+          ["-e", "CLAUDE_CODE_OAUTH_TOKEN=#{token}"]
+
+        # Fall back to mounting host credentials (read-only)
+        File.exists?(host_credentials) ->
+          ["-v", "#{host_credentials}:/home/hive/.claude/.credentials.json:ro"]
+
+        true ->
+          []
+      end
+
+    args =
+      [
+        "run",
+        "-i",
+        "--name",
+        container_name,
+        "-v",
+        "#{volume_name}:/workspace",
+        "--network",
+        "host"
+      ] ++
+        auth_args ++
+        [
+          image,
+          state.name,
+          mcp_config_internal_path(),
+          "/workspace",
+          "/workspace/.hive/context.md"
+        ]
 
     Port.open(
       {:spawn_executable, String.to_charlist(docker)},
