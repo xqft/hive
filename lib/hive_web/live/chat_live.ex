@@ -726,6 +726,22 @@ defmodule HiveWeb.ChatLive do
     {:noreply, assign(socket, :scratchpad_events, events)}
   end
 
+  # Text chunks — merge with the last text event instead of appending
+  def handle_info({:scratchpad_text, _agent_name, merged_event}, socket) do
+    events = socket.assigns.scratchpad_events
+
+    events =
+      case List.last(events) do
+        {:text, _, _} ->
+          List.replace_at(events, length(events) - 1, merged_event)
+
+        _ ->
+          events ++ [merged_event]
+      end
+
+    {:noreply, assign(socket, :scratchpad_events, events)}
+  end
+
   # Scratchpad events from agent activity
   def handle_info({:scratchpad, _agent_name, event}, socket) do
     events = socket.assigns.scratchpad_events ++ [event]

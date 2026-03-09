@@ -1085,12 +1085,17 @@ defmodule Hive.AgentTest do
       pid = start_agent(name)
       port = get_port(pid)
 
-      # Push 110 events
+      # Push 110 tool_use events (non-mergeable, each has a unique id)
       for i <- 1..110 do
         inject_port_message(
           pid,
           port,
-          Jason.encode!(%{"type" => "text", "text" => "event-#{i}"})
+          Jason.encode!(%{
+            "type" => "tool_use_start",
+            "toolName" => "tool-#{i}",
+            "toolInput" => %{"n" => i},
+            "toolUseId" => "id-#{i}"
+          })
         )
 
         # Small delay so messages are processed sequentially
@@ -1101,11 +1106,11 @@ defmodule Hive.AgentTest do
       scratchpad = Hive.Agent.scratchpad(name)
       assert length(scratchpad) == 100
 
-      # Most recent event should be event-110 (first in list since prepended)
-      assert {:text, "event-110", _} = hd(scratchpad)
+      # Most recent event should be tool-110 (first in list since prepended)
+      assert {:tool_use, "tool-110", _, _, _} = hd(scratchpad)
 
-      # Oldest should be event-11 (events 1-10 were evicted)
-      assert {:text, "event-11", _} = List.last(scratchpad)
+      # Oldest should be tool-11 (events 1-10 were evicted)
+      assert {:tool_use, "tool-11", _, _, _} = List.last(scratchpad)
 
       on_exit(fn -> Hive.Persistence.delete_agent(name) end)
     end
