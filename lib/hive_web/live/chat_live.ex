@@ -208,7 +208,7 @@ defmodule HiveWeb.ChatLive do
               </div>
 
               <div id="messages" class="ui-chat-messages" phx-hook="ScrollBottom">
-                <div :if={@messages == []} class="ui-empty" id="empty-chat-state">
+                <div :if={@active_topic && @messages == []} class="ui-empty" id="empty-chat-state">
                   <div>
                     <p class="text-base font-semibold text-[var(--ui-text-strong)]">
                       No messages yet
