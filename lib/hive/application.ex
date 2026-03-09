@@ -19,6 +19,7 @@ defmodule Hive.Application do
       {Registry, keys: :unique, name: Hive.TopicRegistry},
       {Registry, keys: :unique, name: Hive.AgentRegistry},
       {Registry, keys: :unique, name: Hive.ContainerRegistry},
+      {Registry, keys: :unique, name: Hive.EventSourceRegistry},
       {Registry, keys: :unique, name: Hive.TerminalRelayRegistry},
       # Persistence (SQLite) — must start before topics/agents
       Hive.Persistence,
@@ -26,6 +27,7 @@ defmodule Hive.Application do
       {DynamicSupervisor, name: Hive.TopicSup, strategy: :one_for_one},
       {DynamicSupervisor, name: Hive.AgentSup, strategy: :one_for_one},
       {DynamicSupervisor, name: Hive.ContainerSup, strategy: :one_for_one},
+      {DynamicSupervisor, name: Hive.EventSourceSup, strategy: :one_for_one},
       {DynamicSupervisor, name: Hive.TerminalRelaySup, strategy: :one_for_one},
       # Boot task — restores topics and agents from DB after supervisors are up
       {Task, &boot/0},
@@ -47,6 +49,7 @@ defmodule Hive.Application do
     Hive.Container.cleanup_orphaned_containers()
     restore_topics()
     restore_agents()
+    restore_event_sources()
     Logger.info("Hive boot complete")
   end
 
@@ -90,4 +93,23 @@ defmodule Hive.Application do
     end
   end
 
+  defp restore_event_sources do
+    {:ok, sources} = Hive.Persistence.get_enabled_event_sources()
+
+    for src <- sources do
+      config = if is_binary(src.config), do: Jason.decode!(src.config), else: src.config
+
+      DynamicSupervisor.start_child(
+        Hive.EventSourceSup,
+        {Hive.Connector.EventSource,
+         [
+           name: src.name,
+           type: src.type,
+           topic: src.topic,
+           config: config,
+           enabled: src.enabled
+         ]}
+      )
+    end
+  end
 end
