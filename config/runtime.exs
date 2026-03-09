@@ -28,7 +28,18 @@ config :hive,
   secret_key_base:
     System.get_env("HIVE_SECRET_KEY_BASE") ||
       "dev-secret-key-base-change-me-in-production-at-least-64-bytes-long-ok",
-  claude_oauth_token: System.get_env("CLAUDE_CODE_OAUTH_TOKEN")
+  claude_oauth_token:
+    System.get_env("CLAUDE_CODE_OAUTH_TOKEN") ||
+      (fn ->
+         path = Path.expand("~/.claude/.credentials.json")
+
+         if File.exists?(path) do
+           case Jason.decode(File.read!(path)) do
+             {:ok, %{"claudeAiOauth" => %{"accessToken" => token}}} -> token
+             _ -> nil
+           end
+         end
+       end).()
 
 if config_env() == :prod do
   # The secret key base is used to sign/encrypt cookies and other secrets.

@@ -446,7 +446,8 @@ defmodule HiveWeb.ToolsController do
           topic
           |> Hive.Topic.recent(10)
           |> Enum.filter(fn msg ->
-            msg.sender != agent and DateTime.compare(msg.ts, composing_since) == :gt
+            msg.sender != agent and
+              DateTime.compare(ensure_datetime(msg.ts), composing_since) == :gt
           end)
 
         if new_messages == [] do
@@ -498,4 +499,22 @@ defmodule HiveWeb.ToolsController do
       [] -> :ok
     end
   end
+
+  defp ensure_datetime(%DateTime{} = dt), do: dt
+
+  defp ensure_datetime(str) when is_binary(str) do
+    case DateTime.from_iso8601(str) do
+      {:ok, dt, _} ->
+        dt
+
+      {:error, _} ->
+        # SQLite timestamps are "YYYY-MM-DD HH:MM:SS" (no timezone)
+        case NaiveDateTime.from_iso8601(str) do
+          {:ok, ndt} -> DateTime.from_naive!(ndt, "Etc/UTC")
+          {:error, _} -> DateTime.utc_now()
+        end
+    end
+  end
+
+  defp ensure_datetime(_), do: DateTime.utc_now()
 end

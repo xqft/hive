@@ -100,6 +100,7 @@ async function processNext(batch) {
       model: "claude-opus-4-6",
       settings: { effortLevel: "max" },
       systemPrompt,
+      includePartialMessages: true,
       allowedTools: ["Skill", ...hiveTools, ...extraToolPatterns],
       settingSources: [],  // Don't load filesystem settings, we provide everything
       mcpServers: Object.fromEntries(

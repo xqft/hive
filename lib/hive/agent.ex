@@ -552,9 +552,7 @@ defmodule Hive.Agent do
       "-v",
       "#{volume_name}:/workspace",
       "--network",
-      "bridge",
-      "--add-host",
-      "host.docker.internal:host-gateway",
+      "host",
       "-e",
       "CLAUDE_CODE_OAUTH_TOKEN=#{oauth_token}",
       image,
@@ -821,7 +819,7 @@ defmodule Hive.Agent do
   end
 
   defp build_mcp_config(state) do
-    hive_url = "http://host.docker.internal:#{hive_port()}"
+    hive_url = "http://localhost:#{hive_port()}"
 
     mcp_servers = %{
       "hive" => %{
