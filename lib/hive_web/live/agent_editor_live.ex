@@ -9,13 +9,11 @@ defmodule HiveWeb.AgentEditorLive do
   @impl true
   def mount(_params, _session, socket) do
     agents = load_agents()
-    mcp_servers = load_mcp_servers()
 
     socket =
       socket
       |> assign(:page_title, "Agents")
       |> assign(:agents, agents)
-      |> assign(:mcp_servers, mcp_servers)
       |> assign_new_form()
 
     {:ok, socket}
@@ -117,44 +115,6 @@ defmodule HiveWeb.AgentEditorLive do
                     placeholder="Instructions, personality, objectives..."
                   >{@form_personality}</textarea>
                 </div>
-                
-    <!-- MCP Server assignment -->
-                <div class="form-control mb-4">
-                  <label class="mb-2 block text-sm font-medium text-[var(--ui-text-strong)]">
-                    MCP Servers
-                  </label>
-                  <div :if={@mcp_servers == []} class="text-sm text-base-content/50">
-                    No MCP servers installed. <a href="/mcp" class="link link-primary">Install one</a>.
-                  </div>
-                  <div
-                    :for={mcp <- @mcp_servers}
-                    class="rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-3 mb-2"
-                  >
-                    <label class="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        name="mcp_servers[]"
-                        value={mcp.name}
-                        checked={mcp.name in @assigned_mcps}
-                        class="checkbox checkbox-sm checkbox-primary"
-                      />
-                      <span class="font-medium">{mcp.name}</span>
-                      <span class="text-xs text-base-content/50">{mcp.description}</span>
-                    </label>
-                    <div :if={mcp.name in @assigned_mcps} class="mt-2 ml-7">
-                      <label class="mb-2 block text-xs font-medium text-[var(--ui-text-soft)]">
-                        Allowed tools (comma-separated, blank = all)
-                      </label>
-                      <input
-                        name={"mcp_tools[#{mcp.name}]"}
-                        value={Map.get(@assigned_mcp_tools, mcp.name, "")}
-                        class="ui-input w-full"
-                        placeholder="tool1, tool2, ..."
-                      />
-                    </div>
-                  </div>
-                </div>
-
                 <div class="flex gap-2 mt-6">
                   <.button type="submit">
                     {if @editing_existing, do: "Update", else: "Create"}
@@ -196,8 +156,6 @@ defmodule HiveWeb.AgentEditorLive do
         {:noreply, put_flash(socket, :error, "Agent not found")}
 
       {:ok, agent} ->
-        {assigned_mcps, assigned_mcp_tools} = load_agent_mcp_assignments(name)
-
         socket =
           socket
           |> assign(:selected_agent, name)
@@ -205,8 +163,6 @@ defmodule HiveWeb.AgentEditorLive do
           |> assign(:form_name, agent.name)
           |> assign(:form_description, agent.description || "")
           |> assign(:form_personality, agent.personality || "")
-          |> assign(:assigned_mcps, assigned_mcps)
-          |> assign(:assigned_mcp_tools, assigned_mcp_tools)
           |> assign(:name_error, nil)
 
         {:noreply, socket}
@@ -224,18 +180,12 @@ defmodule HiveWeb.AgentEditorLive do
         validate_name_field(name, socket.assigns.agents)
       end
 
-    # Track checkbox state for MCP servers during validation
-    checked_mcps = Map.get(params, "mcp_servers", [])
-    mcp_tools = Map.get(params, "mcp_tools", %{})
-
     socket =
       socket
       |> assign(:name_error, name_error)
       |> assign(:form_name, name)
       |> assign(:form_description, Map.get(params, "description", ""))
       |> assign(:form_personality, Map.get(params, "personality", ""))
-      |> assign(:assigned_mcps, MapSet.new(checked_mcps))
-      |> assign(:assigned_mcp_tools, mcp_tools)
 
     {:noreply, socket}
   end
@@ -244,13 +194,11 @@ defmodule HiveWeb.AgentEditorLive do
     name = String.trim(params["name"] || "")
     description = String.trim(params["description"] || "")
     personality = String.trim(params["personality"] || "")
-    checked_mcps = Map.get(params, "mcp_servers", [])
-    mcp_tools = Map.get(params, "mcp_tools", %{})
 
     if socket.assigns.editing_existing do
-      handle_update_agent(socket, name, description, personality, checked_mcps, mcp_tools)
+      handle_update_agent(socket, name, description, personality)
     else
-      handle_create_agent(socket, name, description, personality, checked_mcps, mcp_tools)
+      handle_create_agent(socket, name, description, personality)
     end
   end
 
@@ -327,7 +275,7 @@ defmodule HiveWeb.AgentEditorLive do
   # Create / Update helpers
   # ---------------------------------------------------------------------------
 
-  defp handle_create_agent(socket, name, description, personality, checked_mcps, mcp_tools) do
+  defp handle_create_agent(socket, name, description, personality) do
     name_error = validate_name_field(name, socket.assigns.agents)
 
     if name_error do
@@ -337,9 +285,6 @@ defmodule HiveWeb.AgentEditorLive do
         :ok ->
           # Start the agent GenServer
           start_agent_process(name, description, personality)
-
-          # Handle MCP assignments
-          sync_mcp_assignments(name, MapSet.new(), checked_mcps, mcp_tools)
 
           agents = load_agents()
 
@@ -360,7 +305,7 @@ defmodule HiveWeb.AgentEditorLive do
     end
   end
 
-  defp handle_update_agent(socket, name, description, personality, checked_mcps, mcp_tools) do
+  defp handle_update_agent(socket, name, description, personality) do
     old_personality = socket.assigns.form_personality
 
     attrs =
@@ -370,25 +315,18 @@ defmodule HiveWeb.AgentEditorLive do
 
     case Persistence.update_agent(name, attrs) do
       :ok ->
-        # Sync MCP assignments
-        {old_mcps, _old_tools} = load_agent_mcp_assignments(name)
-        sync_mcp_assignments(name, old_mcps, checked_mcps, mcp_tools)
-
         # If personality changed, restart the agent to pick up new CLAUDE.md
         if personality != old_personality do
           restart_agent_process(name, description, personality)
         end
 
         agents = load_agents()
-        {assigned_mcps, assigned_mcp_tools} = load_agent_mcp_assignments(name)
 
         socket =
           socket
           |> assign(:agents, agents)
           |> assign(:form_description, description)
           |> assign(:form_personality, personality)
-          |> assign(:assigned_mcps, assigned_mcps)
-          |> assign(:assigned_mcp_tools, assigned_mcp_tools)
           |> put_flash(:info, "Agent \"#{name}\" updated")
 
         {:noreply, socket}
@@ -396,34 +334,6 @@ defmodule HiveWeb.AgentEditorLive do
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Failed to update agent: #{inspect(reason)}")}
     end
-  end
-
-  # ---------------------------------------------------------------------------
-  # MCP assignment sync
-  # ---------------------------------------------------------------------------
-
-  defp sync_mcp_assignments(agent_name, old_mcps, new_mcp_list, mcp_tools) do
-    new_mcps = MapSet.new(new_mcp_list)
-
-    # Unassign removed
-    old_mcps
-    |> MapSet.difference(new_mcps)
-    |> Enum.each(fn mcp_name ->
-      Persistence.unassign_mcp_server(agent_name, mcp_name)
-    end)
-
-    # Assign new or update existing (allowed_tools might have changed)
-    Enum.each(new_mcp_list, fn mcp_name ->
-      tools_str = Map.get(mcp_tools, mcp_name, "")
-
-      allowed_tools =
-        tools_str
-        |> String.split(",", trim: true)
-        |> Enum.map(&String.trim/1)
-        |> Enum.reject(&(&1 == ""))
-
-      Persistence.assign_mcp_server(agent_name, mcp_name, allowed_tools)
-    end)
   end
 
   # ---------------------------------------------------------------------------
@@ -484,37 +394,6 @@ defmodule HiveWeb.AgentEditorLive do
     end
   end
 
-  defp load_mcp_servers do
-    case Persistence.get_mcp_servers() do
-      {:ok, servers} -> servers
-      _ -> []
-    end
-  end
-
-  defp load_agent_mcp_assignments(agent_name) do
-    case Persistence.get_agent_mcp_servers(agent_name) do
-      {:ok, assignments} ->
-        mcps = MapSet.new(assignments, fn a -> a.name end)
-
-        tools =
-          Map.new(assignments, fn a ->
-            allowed = parse_json_field(a.allowed_tools, [])
-            {a.name, Enum.join(allowed, ", ")}
-          end)
-
-        {mcps, tools}
-
-      _ ->
-        {MapSet.new(), %{}}
-    end
-  end
-
-  defdelegate parse_json_field(value, default), to: Hive.Util
-
-  # ---------------------------------------------------------------------------
-  # Assign helpers
-  # ---------------------------------------------------------------------------
-
   # ---------------------------------------------------------------------------
   # AI personality generation
   # ---------------------------------------------------------------------------
@@ -526,7 +405,7 @@ defmodule HiveWeb.AgentEditorLive do
     Name: #{name}
     Description: #{description}
 
-    The agent operates in a multi-agent orchestration system called Hive where agents communicate via topics and DMs, can execute code in Docker containers, and extend capabilities via MCP servers.
+    The agent operates in a multi-agent orchestration system called Hive where agents communicate via topics and DMs, and run inside persistent Docker containers with full shell access.
 
     Write a concise, focused personality that includes:
     - The agent's role and expertise
@@ -565,8 +444,6 @@ defmodule HiveWeb.AgentEditorLive do
     |> assign(:form_name, "")
     |> assign(:form_description, "")
     |> assign(:form_personality, "")
-    |> assign(:assigned_mcps, MapSet.new())
-    |> assign(:assigned_mcp_tools, %{})
     |> assign(:name_error, nil)
     |> assign(:generating, false)
     |> assign(:generate_task, nil)

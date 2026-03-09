@@ -143,8 +143,7 @@ defmodule HiveWeb.CoreComponents do
       assign(assigns, :nav_items, [
         %{key: :chat, label: "Chat", href: "/", icon: "hero-chat-bubble-left-right"},
         %{key: :dashboard, label: "Overview", href: "/dashboard", icon: "hero-squares-2x2"},
-        %{key: :agents, label: "Agents", href: "/agents", icon: "hero-users"},
-        %{key: :mcp, label: "MCP", href: "/mcp", icon: "hero-command-line"}
+        %{key: :agents, label: "Agents", href: "/agents", icon: "hero-users"}
       ])
 
     ~H"""

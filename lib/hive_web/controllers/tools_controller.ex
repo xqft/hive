@@ -16,12 +16,8 @@ defmodule HiveWeb.ToolsController do
     send_message send_dm create_topic join_topic leave_topic
     get_topic_history list_agents list_topics
     create_agent delete_agent
-    execute_in_container check_execution
-    send_to_container capture_container_output
-    container_new_window container_list_windows
-    container_split_pane container_list_panes
     write_skill read_skill delete_skill write_claude_md
-    upload_media extract_container_file view_image
+    upload_media view_image
   )
 
   def call_tool(conn, %{"agent" => agent, "tool" => tool, "params" => params}) do
@@ -256,54 +252,6 @@ defmodule HiveWeb.ToolsController do
     end
   end
 
-  defp execute_tool(agent, "execute_in_container", params) do
-    case Hive.Container.start(agent, params) do
-      {:ok, container_id} ->
-        {:ok,
-         "Container #{container_id} launched with an empty bash shell. Use send_to_container to run commands."}
-
-      {:error, msg} ->
-        {:error, msg}
-    end
-  end
-
-  defp execute_tool(_agent, "check_execution", %{"container_id" => id}) do
-    Hive.Container.check(id)
-  end
-
-  defp execute_tool(_agent, "send_to_container", %{"container_id" => id} = params) do
-    Hive.Container.send_input(id, params)
-  end
-
-  defp execute_tool(_agent, "capture_container_output", %{"container_id" => id} = params) do
-    Hive.Container.capture_output(id, params)
-  end
-
-  defp execute_tool(
-         _agent,
-         "container_new_window",
-         %{"container_id" => id, "name" => name} = params
-       ) do
-    Hive.Container.new_window(id, name, params["command"])
-  end
-
-  defp execute_tool(_agent, "container_list_windows", %{"container_id" => id}) do
-    Hive.Container.list_windows(id)
-  end
-
-  defp execute_tool(_agent, "container_split_pane", %{"container_id" => id} = params) do
-    Hive.Container.split_pane(
-      id,
-      Map.get(params, "direction", "vertical"),
-      Map.get(params, "window", "0"),
-      params["command"]
-    )
-  end
-
-  defp execute_tool(_agent, "container_list_panes", %{"container_id" => id} = params) do
-    Hive.Container.list_panes(id, Map.get(params, "window", "0"))
-  end
-
   defp execute_tool(agent, "write_skill", %{"name" => name, "content" => content}) do
     with :ok <- Hive.Validation.validate_name(name) do
       dir = Path.join(["priv", "agents", agent, ".claude", "skills", name])
@@ -348,13 +296,6 @@ defmodule HiveWeb.ToolsController do
     else
       :error -> {:error, "invalid base64 data"}
       {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp execute_tool(_agent, "extract_container_file", %{"container_id" => id, "path" => path}) do
-    with {:ok, data, media_type} <- Hive.Container.extract_file(id, path),
-         {:ok, url} <- Hive.Media.save(data, media_type) do
-      {:ok, url}
     end
   end
 
