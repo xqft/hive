@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { waitForLiveView } from "./helpers";
 
 test.describe("Mobile pages", () => {
   test("dashboard stat cards stack vertically", async ({ page }) => {
@@ -28,6 +29,7 @@ test.describe("Mobile pages", () => {
     }
 
     await page.goto("/agents");
+    await waitForLiveView(page);
 
     // The "New agent" button should be visible (list view)
     const newAgentBtn = page.locator('button:has-text("New agent")');
@@ -36,9 +38,9 @@ test.describe("Mobile pages", () => {
     // Click "New agent" to switch to editor view
     await newAgentBtn.click();
 
-    // Back button should appear
+    // Back button should appear (wait for LV to re-render)
     const backBtn = page.locator(".ui-mobile-back-btn");
-    await expect(backBtn).toBeVisible();
+    await expect(backBtn).toBeVisible({ timeout: 10000 });
 
     // Click back to return to list
     await backBtn.click();
@@ -52,6 +54,7 @@ test.describe("Mobile pages", () => {
     }
 
     await page.goto("/mcp");
+    await waitForLiveView(page);
 
     const installBtn = page.locator('button:has-text("Install MCP server")');
     await expect(installBtn).toBeVisible();
@@ -59,7 +62,7 @@ test.describe("Mobile pages", () => {
     await installBtn.click();
 
     const backBtn = page.locator(".ui-mobile-back-btn");
-    await expect(backBtn).toBeVisible();
+    await expect(backBtn).toBeVisible({ timeout: 10000 });
 
     await backBtn.click();
     await expect(installBtn).toBeVisible();

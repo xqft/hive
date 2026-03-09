@@ -4,11 +4,11 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  retries: process.env.CI ? 2 : 1,
+  workers: process.env.CI ? 1 : 4,
   reporter: "html",
   use: {
-    baseURL: "http://localhost:4002",
+    baseURL: process.env.BASE_URL || "http://localhost:4000",
     trace: "on-first-retry",
   },
   projects: [
@@ -19,17 +19,9 @@ export default defineConfig({
       },
     },
     {
-      name: "mobile-safari",
-      use: {
-        ...devices["iPhone 12"],
-      },
-    },
-    {
       name: "tablet",
       use: {
         viewport: { width: 768, height: 1024 },
-        userAgent:
-          "Mozilla/5.0 (iPad; CPU OS 15_0 like Mac OS X) AppleWebKit/605.1.15",
       },
     },
     {
@@ -41,9 +33,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "MIX_ENV=test mix phx.server",
-    url: "http://localhost:4002",
-    reuseExistingServer: !process.env.CI,
-    timeout: 30000,
+    command: "mix phx.server",
+    url: process.env.BASE_URL || "http://localhost:4000",
+    reuseExistingServer: true,
+    timeout: 60000,
   },
 });

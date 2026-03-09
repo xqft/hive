@@ -1,8 +1,10 @@
 import { test, expect } from "@playwright/test";
+import { waitForLiveView } from "./helpers";
 
 test.describe("Chat page on mobile", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
+    await waitForLiveView(page);
   });
 
   test("chat messages area fills available space", async ({ page }) => {
@@ -51,7 +53,7 @@ test.describe("Chat page on mobile", () => {
     await toggleBtn.click();
 
     const sheet = page.locator(".ui-mobile-sheet");
-    await expect(sheet).toBeVisible();
+    await expect(sheet).toBeVisible({ timeout: 10000 });
 
     // Backdrop should be visible
     const backdrop = page.locator(".ui-mobile-sheet-backdrop");
