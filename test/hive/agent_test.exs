@@ -917,4 +917,314 @@ defmodule Hive.AgentTest do
       on_exit(fn -> Hive.Persistence.delete_agent(name) end)
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Scratchpad: thinking events
+  # ---------------------------------------------------------------------------
+
+  describe "scratchpad thinking events" do
+    test "thinking JSON from port is pushed to scratchpad and broadcast" do
+      name = unique_name("scrthink")
+      :ok = Hive.Persistence.create_agent(name, "test", "test")
+
+      Phoenix.PubSub.subscribe(Hive.PubSub, "agent:scratchpad:#{name}")
+
+      pid = start_agent(name)
+      port = get_port(pid)
+
+      inject_port_message(
+        pid,
+        port,
+        Jason.encode!(%{"type" => "thinking", "text" => "Let me consider..."})
+      )
+
+      # Should receive PubSub broadcast
+      assert_receive {:scratchpad, ^name, {:thinking, "Let me consider...", _ts}}, 1_000
+
+      # Should be in scratchpad
+      scratchpad = Hive.Agent.scratchpad(name)
+      assert length(scratchpad) == 1
+      assert {:thinking, "Let me consider...", _ts} = hd(scratchpad)
+
+      on_exit(fn -> Hive.Persistence.delete_agent(name) end)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Scratchpad: tool_use_start events
+  # ---------------------------------------------------------------------------
+
+  describe "scratchpad tool_use_start events" do
+    test "tool_use_start JSON is pushed to scratchpad" do
+      name = unique_name("scrtool")
+      :ok = Hive.Persistence.create_agent(name, "test", "test")
+
+      Phoenix.PubSub.subscribe(Hive.PubSub, "agent:scratchpad:#{name}")
+
+      pid = start_agent(name)
+      port = get_port(pid)
+
+      inject_port_message(
+        pid,
+        port,
+        Jason.encode!(%{
+          "type" => "tool_use_start",
+          "toolName" => "Bash",
+          "toolInput" => %{"command" => "ls -la"},
+          "toolUseId" => "tu_123"
+        })
+      )
+
+      assert_receive {:scratchpad, ^name,
+                       {:tool_use, "Bash", %{"command" => "ls -la"}, "tu_123", _ts}},
+                     1_000
+
+      scratchpad = Hive.Agent.scratchpad(name)
+      assert length(scratchpad) == 1
+      assert {:tool_use, "Bash", %{"command" => "ls -la"}, "tu_123", _ts} = hd(scratchpad)
+
+      on_exit(fn -> Hive.Persistence.delete_agent(name) end)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Scratchpad: tool_result events
+  # ---------------------------------------------------------------------------
+
+  describe "scratchpad tool_result events" do
+    test "tool_result JSON is pushed to scratchpad" do
+      name = unique_name("scrtoolr")
+      :ok = Hive.Persistence.create_agent(name, "test", "test")
+
+      Phoenix.PubSub.subscribe(Hive.PubSub, "agent:scratchpad:#{name}")
+
+      pid = start_agent(name)
+      port = get_port(pid)
+
+      inject_port_message(
+        pid,
+        port,
+        Jason.encode!(%{
+          "type" => "tool_result",
+          "toolUseId" => "tu_456",
+          "output" => "file1.txt\nfile2.txt"
+        })
+      )
+
+      assert_receive {:scratchpad, ^name,
+                       {:tool_result, "tu_456", "file1.txt\nfile2.txt", _ts}},
+                     1_000
+
+      scratchpad = Hive.Agent.scratchpad(name)
+      assert length(scratchpad) == 1
+      assert {:tool_result, "tu_456", "file1.txt\nfile2.txt", _ts} = hd(scratchpad)
+
+      on_exit(fn -> Hive.Persistence.delete_agent(name) end)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Scratchpad: API returns events
+  # ---------------------------------------------------------------------------
+
+  describe "scratchpad/1 API" do
+    test "returns accumulated events in reverse chronological order" do
+      name = unique_name("scrapi")
+      :ok = Hive.Persistence.create_agent(name, "test", "test")
+      pid = start_agent(name)
+      port = get_port(pid)
+
+      inject_port_message(
+        pid,
+        port,
+        Jason.encode!(%{"type" => "thinking", "text" => "first"})
+      )
+
+      Process.sleep(20)
+
+      inject_port_message(
+        pid,
+        port,
+        Jason.encode!(%{"type" => "text", "text" => "second"})
+      )
+
+      Process.sleep(20)
+
+      inject_port_message(
+        pid,
+        port,
+        Jason.encode!(%{
+          "type" => "tool_use_start",
+          "toolName" => "Read",
+          "toolInput" => %{},
+          "toolUseId" => "tu_789"
+        })
+      )
+
+      Process.sleep(20)
+
+      scratchpad = Hive.Agent.scratchpad(name)
+      assert length(scratchpad) == 3
+
+      # Most recent first (prepended)
+      assert {:tool_use, "Read", %{}, "tu_789", _} = Enum.at(scratchpad, 0)
+      assert {:text, "second", _} = Enum.at(scratchpad, 1)
+      assert {:thinking, "first", _} = Enum.at(scratchpad, 2)
+
+      on_exit(fn -> Hive.Persistence.delete_agent(name) end)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Scratchpad: ring buffer limit
+  # ---------------------------------------------------------------------------
+
+  describe "scratchpad ring buffer" do
+    test "keeps only last 100 events when limit exceeded" do
+      name = unique_name("scrlimit")
+      :ok = Hive.Persistence.create_agent(name, "test", "test")
+      pid = start_agent(name)
+      port = get_port(pid)
+
+      # Push 110 events
+      for i <- 1..110 do
+        inject_port_message(
+          pid,
+          port,
+          Jason.encode!(%{"type" => "text", "text" => "event-#{i}"})
+        )
+
+        # Small delay so messages are processed sequentially
+        Process.sleep(5)
+      end
+
+      Process.sleep(50)
+      scratchpad = Hive.Agent.scratchpad(name)
+      assert length(scratchpad) == 100
+
+      # Most recent event should be event-110 (first in list since prepended)
+      assert {:text, "event-110", _} = hd(scratchpad)
+
+      # Oldest should be event-11 (events 1-10 were evicted)
+      assert {:text, "event-11", _} = List.last(scratchpad)
+
+      on_exit(fn -> Hive.Persistence.delete_agent(name) end)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Scratchpad: clears on new thinking cycle
+  # ---------------------------------------------------------------------------
+
+  describe "scratchpad clears on new thinking cycle" do
+    test "scratchpad clears when thinking event arrives while status is idle" do
+      name = unique_name("scrclear")
+      :ok = Hive.Persistence.create_agent(name, "test", "test")
+      pid = start_agent(name)
+      port = get_port(pid)
+
+      # Push some events from the first turn
+      inject_port_message(
+        pid,
+        port,
+        Jason.encode!(%{"type" => "thinking", "text" => "old thought"})
+      )
+
+      Process.sleep(20)
+
+      inject_port_message(
+        pid,
+        port,
+        Jason.encode!(%{"type" => "text", "text" => "old text"})
+      )
+
+      Process.sleep(20)
+      assert length(Hive.Agent.scratchpad(name)) == 2
+
+      # Agent status is still :idle (status events come from SDK, not scratchpad events)
+      # So the next thinking event should clear the scratchpad
+      inject_port_message(
+        pid,
+        port,
+        Jason.encode!(%{"type" => "thinking", "text" => "new thought"})
+      )
+
+      Process.sleep(20)
+      scratchpad = Hive.Agent.scratchpad(name)
+
+      # Scratchpad should have been cleared and only contain the new event
+      assert length(scratchpad) == 1
+      assert {:thinking, "new thought", _} = hd(scratchpad)
+
+      on_exit(fn -> Hive.Persistence.delete_agent(name) end)
+    end
+
+    test "scratchpad does NOT clear when thinking arrives during thinking status" do
+      name = unique_name("scrnoclr")
+      :ok = Hive.Persistence.create_agent(name, "test", "test")
+      pid = start_agent(name)
+      port = get_port(pid)
+
+      # Transition to thinking status first
+      inject_port_message(
+        pid,
+        port,
+        Jason.encode!(%{"type" => "status", "status" => "thinking"})
+      )
+
+      assert_receive {:status, ^name, :thinking}, 1_000
+
+      # Push some scratchpad events while thinking
+      inject_port_message(
+        pid,
+        port,
+        Jason.encode!(%{"type" => "thinking", "text" => "thought A"})
+      )
+
+      Process.sleep(20)
+
+      inject_port_message(
+        pid,
+        port,
+        Jason.encode!(%{"type" => "thinking", "text" => "thought B"})
+      )
+
+      Process.sleep(20)
+      scratchpad = Hive.Agent.scratchpad(name)
+
+      # Both events should be present (no clear because status was :thinking)
+      assert length(scratchpad) == 2
+
+      on_exit(fn -> Hive.Persistence.delete_agent(name) end)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Scratchpad: info includes scratchpad_count
+  # ---------------------------------------------------------------------------
+
+  describe "info includes scratchpad_count" do
+    test "info/1 returns scratchpad_count field" do
+      name = unique_name("scrinfo")
+      :ok = Hive.Persistence.create_agent(name, "test", "test")
+      pid = start_agent(name)
+      port = get_port(pid)
+
+      info = Hive.Agent.info(name)
+      assert info.scratchpad_count == 0
+
+      inject_port_message(
+        pid,
+        port,
+        Jason.encode!(%{"type" => "text", "text" => "hello"})
+      )
+
+      Process.sleep(20)
+
+      info = Hive.Agent.info(name)
+      assert info.scratchpad_count == 1
+
+      on_exit(fn -> Hive.Persistence.delete_agent(name) end)
+    end
+  end
 end

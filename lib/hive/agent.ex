@@ -29,8 +29,11 @@ defmodule Hive.Agent do
     :active_channel,
     :typing_timer,
     :composing_since,
-    line_buffer: ""
+    line_buffer: "",
+    scratchpad: []
   ]
+
+  @scratchpad_limit 100
 
   # ---------------------------------------------------------------------------
   # HMAC secret derivation
@@ -81,6 +84,11 @@ defmodule Hive.Agent do
   @doc "Get the timestamp when the agent started composing for its current channel, or nil."
   def composing_since(agent_name) do
     GenServer.call(via(agent_name), :composing_since)
+  end
+
+  @doc "Get the agent's scratchpad (list of intermediate SDK events)."
+  def scratchpad(agent_name) do
+    GenServer.call(via(agent_name), :scratchpad)
   end
 
   @doc "Stop the agent gracefully."
@@ -199,7 +207,8 @@ defmodule Hive.Agent do
       topics: MapSet.to_list(state.topics),
       dms: MapSet.to_list(state.dms),
       session_id: state.session_id,
-      active_channel: state.active_channel
+      active_channel: state.active_channel,
+      scratchpad_count: length(state.scratchpad)
     }
 
     {:reply, info, state}
@@ -207,6 +216,10 @@ defmodule Hive.Agent do
 
   def handle_call(:status, _from, state) do
     {:reply, state.status, state}
+  end
+
+  def handle_call(:scratchpad, _from, state) do
+    {:reply, state.scratchpad, state}
   end
 
   def handle_call(:active_channel, _from, state) do
@@ -323,6 +336,62 @@ defmodule Hive.Agent do
 
       {:ok, %{"type" => "error", "message" => msg}} ->
         Logger.error("Agent #{state.name} SDK error: #{msg}")
+        {:noreply, state}
+
+      {:ok, %{"type" => "thinking", "text" => text}} ->
+        # Clear scratchpad on new thinking cycle (idle -> first thinking event)
+        state =
+          if state.status == :idle,
+            do: %{state | scratchpad: []},
+            else: state
+
+        event = {:thinking, text, System.system_time(:millisecond)}
+        state = push_scratchpad(state, event)
+
+        Phoenix.PubSub.broadcast(
+          Hive.PubSub,
+          "agent:scratchpad:#{state.name}",
+          {:scratchpad, state.name, event}
+        )
+
+        {:noreply, state}
+
+      {:ok, %{"type" => "text", "text" => text}} ->
+        event = {:text, text, System.system_time(:millisecond)}
+        state = push_scratchpad(state, event)
+
+        Phoenix.PubSub.broadcast(
+          Hive.PubSub,
+          "agent:scratchpad:#{state.name}",
+          {:scratchpad, state.name, event}
+        )
+
+        {:noreply, state}
+
+      {:ok, %{"type" => "tool_use_start", "toolName" => tool_name, "toolUseId" => tool_use_id} = msg} ->
+        tool_input = msg["toolInput"] || %{}
+        event = {:tool_use, tool_name, tool_input, tool_use_id, System.system_time(:millisecond)}
+        state = push_scratchpad(state, event)
+
+        Phoenix.PubSub.broadcast(
+          Hive.PubSub,
+          "agent:scratchpad:#{state.name}",
+          {:scratchpad, state.name, event}
+        )
+
+        {:noreply, state}
+
+      {:ok, %{"type" => "tool_result", "toolUseId" => tool_use_id} = msg} ->
+        output = msg["output"] || ""
+        event = {:tool_result, tool_use_id, output, System.system_time(:millisecond)}
+        state = push_scratchpad(state, event)
+
+        Phoenix.PubSub.broadcast(
+          Hive.PubSub,
+          "agent:scratchpad:#{state.name}",
+          {:scratchpad, state.name, event}
+        )
+
         {:noreply, state}
 
       _ ->
@@ -776,6 +845,17 @@ defmodule Hive.Agent do
   defp cancel_typing_timer(%{typing_timer: timer} = state) do
     Process.cancel_timer(timer)
     %{state | typing_timer: nil}
+  end
+
+  defp push_scratchpad(state, event) do
+    scratchpad = [event | state.scratchpad]
+
+    scratchpad =
+      if length(scratchpad) > @scratchpad_limit,
+        do: Enum.take(scratchpad, @scratchpad_limit),
+        else: scratchpad
+
+    %{state | scratchpad: scratchpad}
   end
 
   defdelegate safe_broadcast(topic, payload), to: Hive.Util
