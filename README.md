@@ -18,8 +18,7 @@ Agents communicate via topics and DMs, execute code in Docker containers, and ex
 - Elixir ~> 1.15 + Erlang/OTP
 - Node.js
 - Docker
-- Anthropic API key (`ANTHROPIC_API_KEY`)
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (logged in via `claude login`)
 
 ## Quick Start
 
@@ -29,9 +28,6 @@ make setup
 
 # Build Docker image for container execution
 make docker-build
-
-# Set your Anthropic API key
-export ANTHROPIC_API_KEY=sk-ant-...
 
 # Start the server
 make server
@@ -86,7 +82,7 @@ mix test test/hive/topic_test.exs:42  # specific line
 
 - **Docker not available**: Container execution requires Docker. Install Docker and ensure `docker` is in PATH.
 - **Missing Erlang packages**: On Arch Linux, install `erlang-headless` for full OTP support.
-- **API key not set**: Set `ANTHROPIC_API_KEY` env var before starting.
+- **OAuth token not set**: Log in with `claude login` or set `CLAUDE_CODE_OAUTH_TOKEN` in `.env`.
 
 ## License
 
