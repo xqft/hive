@@ -20,7 +20,7 @@ defmodule HiveWeb.Router do
     live "/", ChatLive
     live "/dashboard", DashboardLive
     live "/agents", AgentEditorLive
-    live "/mcp", McpServersLive
+    live "/connectors", ConnectorsLive
     live "/containers/:id", ContainerLive
   end
 
@@ -28,5 +28,6 @@ defmodule HiveWeb.Router do
     pipe_through :api
 
     post "/tools", ToolsController, :call_tool
+    post "/hooks/:event_source_name/:secret", WebhookController, :receive_event
   end
 end
