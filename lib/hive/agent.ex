@@ -542,19 +542,14 @@ defmodule Hive.Agent do
   defp create_container(state, container_name, volume_name) do
     docker = docker_executable()
     image = Application.get_env(:hive, :container_image_name, "hive-claude-code:latest")
-    host_credentials = Path.expand("~/.claude/.credentials.json")
 
     auth_args =
-      cond do
-        # Explicit token takes priority
-        token = Application.get_env(:hive, :claude_oauth_token) ->
+      case resolve_oauth_token() do
+        {:ok, token} ->
           ["-e", "CLAUDE_CODE_OAUTH_TOKEN=#{token}"]
 
-        # Fall back to mounting host credentials (read-only)
-        File.exists?(host_credentials) ->
-          ["-v", "#{host_credentials}:/home/hive/.claude/.credentials.json:ro"]
-
-        true ->
+        :error ->
+          Logger.warning("No OAuth token available for agent #{state.name}")
           []
       end
 
@@ -582,6 +577,13 @@ defmodule Hive.Agent do
       {:spawn_executable, String.to_charlist(docker)},
       [:binary, :exit_status, args: args, line: 65_536]
     )
+  end
+
+  defp resolve_oauth_token do
+    case Application.get_env(:hive, :claude_oauth_token) do
+      token when is_binary(token) and token != "" -> {:ok, token}
+      _ -> :error
+    end
   end
 
   defp wake_container(state, container_name) do
