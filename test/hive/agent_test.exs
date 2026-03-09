@@ -431,6 +431,43 @@ defmodule Hive.AgentTest do
   end
 
   # ---------------------------------------------------------------------------
+  # 6b. Topic join/leave state sync (REGRESSION: Agent topics MapSet not updated)
+  # ---------------------------------------------------------------------------
+
+  describe "topic join/leave state sync" do
+    test "topic_joined message adds topic to agent's topics set" do
+      name = unique_name("joinsync")
+      :ok = Hive.Persistence.create_agent(name, "test", "test")
+      pid = start_agent(name)
+
+      refute "new-topic" in Hive.Agent.info(name).topics
+
+      send(pid, {:topic_joined, "new-topic"})
+      Process.sleep(50)
+
+      assert "new-topic" in Hive.Agent.info(name).topics
+
+      on_exit(fn -> Hive.Persistence.delete_agent(name) end)
+    end
+
+    test "topic_left message removes topic from agent's topics set" do
+      name = unique_name("leavesync")
+      :ok = Hive.Persistence.create_agent(name, "test", "test")
+      pid = start_agent(name)
+
+      send(pid, {:topic_joined, "ephemeral"})
+      Process.sleep(50)
+      assert "ephemeral" in Hive.Agent.info(name).topics
+
+      send(pid, {:topic_left, "ephemeral"})
+      Process.sleep(50)
+      refute "ephemeral" in Hive.Agent.info(name).topics
+
+      on_exit(fn -> Hive.Persistence.delete_agent(name) end)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # 7. Mention invite
   # ---------------------------------------------------------------------------
 

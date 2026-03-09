@@ -243,6 +243,16 @@ defmodule Hive.Agent do
     {:noreply, state}
   end
 
+  # -- Info: topic membership changes from Topic GenServer ------------------
+
+  def handle_info({:topic_joined, topic_name}, state) do
+    {:noreply, %{state | topics: MapSet.put(state.topics, topic_name)}}
+  end
+
+  def handle_info({:topic_left, topic_name}, state) do
+    {:noreply, %{state | topics: MapSet.delete(state.topics, topic_name)}}
+  end
+
   # -- Info: @mention invite from Topic ------------------------------------
 
   def handle_info({:mention_invite, topic_name, recent_messages}, state) do

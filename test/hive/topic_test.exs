@@ -241,6 +241,68 @@ defmodule Hive.TopicTest do
     end
   end
 
+  # ── DM privacy (REGRESSION: third-party agents could join DMs) ─────
+
+  describe "DM privacy" do
+    test "third-party agent cannot join a DM" do
+      start_topic("dm:alice:bob", type: :dm)
+
+      assert {:error, msg} = Topic.join("dm:alice:bob", "charlie")
+      assert msg =~ "cannot join DM"
+      refute MapSet.member?(Topic.subscribers("dm:alice:bob"), "charlie")
+    end
+
+    test "DM participants can join their own DM" do
+      start_topic("dm:alice:bob", type: :dm)
+
+      assert {:ok, _} = Topic.join("dm:alice:bob", "alice")
+      assert {:ok, _} = Topic.join("dm:alice:bob", "bob")
+      assert MapSet.member?(Topic.subscribers("dm:alice:bob"), "alice")
+      assert MapSet.member?(Topic.subscribers("dm:alice:bob"), "bob")
+    end
+
+    test "joining a DM twice is idempotent" do
+      start_topic("dm:alice:bob", type: :dm)
+
+      {:ok, _} = Topic.join("dm:alice:bob", "alice")
+      {:ok, _} = Topic.join("dm:alice:bob", "alice")
+      assert MapSet.size(Topic.subscribers("dm:alice:bob")) == 1
+    end
+  end
+
+  # ── Agent state sync on join/leave ───────────────────────────────
+
+  describe "agent state sync on join/leave" do
+    test "joining a topic notifies the agent GenServer" do
+      start_topic("sync-join")
+
+      {:ok, _} = Registry.register(Hive.AgentRegistry, "alice", nil)
+      Topic.join("sync-join", "alice")
+
+      assert_receive {:topic_joined, "sync-join"}
+    end
+
+    test "leaving a topic notifies the agent GenServer" do
+      start_topic("sync-leave")
+
+      {:ok, _} = Registry.register(Hive.AgentRegistry, "alice", nil)
+      Topic.join("sync-leave", "alice")
+      assert_receive {:topic_joined, "sync-leave"}
+
+      Topic.leave("sync-leave", "alice")
+      assert_receive {:topic_left, "sync-leave"}
+    end
+
+    test "leaving a topic you're not in does not send notification" do
+      start_topic("sync-noop-leave")
+
+      {:ok, _} = Registry.register(Hive.AgentRegistry, "alice", nil)
+      Topic.leave("sync-noop-leave", "alice")
+
+      refute_receive {:topic_left, _}, 100
+    end
+  end
+
   # ── PubSub broadcasting ─────────────────────────────────────────────
 
   describe "PubSub broadcasting" do

@@ -183,10 +183,27 @@ defmodule Hive.Topic do
   end
 
   @impl true
+  def handle_call({:join, agent_name}, _from, %{type: :dm} = state) do
+    # DMs are private — only the two named parties may join
+    [_, a, b] = String.split(state.name, ":")
+
+    if agent_name in [a, b] do
+      {state, joined?} = add_subscriber(state, agent_name)
+      if joined?, do: notify_agent_joined(state.name, agent_name)
+      recent = Enum.take(state.messages, 5)
+      {:reply, {:ok, recent}, state}
+    else
+      {:reply, {:error, "cannot join DM — DMs are private between #{a} and #{b}"}, state}
+    end
+  end
+
+  @impl true
   def handle_call({:join, agent_name}, _from, state) do
     {state, joined?} = add_subscriber(state, agent_name)
 
     if joined? do
+      notify_agent_joined(state.name, agent_name)
+
       safe_broadcast(
         "topic:#{state.name}",
         {:member_joined, %{topic: state.name, agent: agent_name, ts: DateTime.utc_now()}}
@@ -199,9 +216,14 @@ defmodule Hive.Topic do
 
   @impl true
   def handle_call({:leave, agent_name}, _from, state) do
+    was_member = MapSet.member?(state.subscribers, agent_name)
     state = %{state | subscribers: MapSet.delete(state.subscribers, agent_name)}
 
     persist(fn -> Hive.Persistence.unsubscribe(state.name, agent_name) end)
+
+    if was_member do
+      notify_agent_left(state.name, agent_name)
+    end
 
     {:reply, :ok, state}
   end
@@ -284,6 +306,20 @@ defmodule Hive.Topic do
       next_state = %{state | subscribers: MapSet.put(state.subscribers, agent_name)}
       persist(fn -> Hive.Persistence.subscribe(next_state.name, agent_name) end)
       {next_state, true}
+    end
+  end
+
+  defp notify_agent_joined(topic_name, agent_name) do
+    case Registry.lookup(Hive.AgentRegistry, agent_name) do
+      [{pid, _}] -> send(pid, {:topic_joined, topic_name})
+      [] -> :ok
+    end
+  end
+
+  defp notify_agent_left(topic_name, agent_name) do
+    case Registry.lookup(Hive.AgentRegistry, agent_name) do
+      [{pid, _}] -> send(pid, {:topic_left, topic_name})
+      [] -> :ok
     end
   end
 
