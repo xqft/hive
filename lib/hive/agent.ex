@@ -556,8 +556,6 @@ defmodule Hive.Agent do
       "--add-host",
       "host.docker.internal:host-gateway",
       "-e",
-      "ANTHROPIC_API_KEY=#{oauth_token}",
-      "-e",
       "CLAUDE_CODE_OAUTH_TOKEN=#{oauth_token}",
       image,
       state.name,
