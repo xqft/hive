@@ -101,7 +101,7 @@ defmodule HiveWeb.ChatLiveTest do
       {:ok, view, _html} = live(conn, "/")
 
       view |> element("#topic-#{topic}") |> render_click()
-      assert has_element?(view, "#topic-#{topic}.is-active")
+      assert has_element?(view, ".ui-chat-panel__title", "##{topic}")
     end
 
     test "selecting a topic loads its messages", %{conn: conn} do

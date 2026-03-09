@@ -25,7 +25,6 @@ defmodule HiveWeb.McpServersLive do
       <.app_shell
         current={:mcp}
         title="MCP Servers"
-        subtitle="Install and tune external toolchains without losing a clear overview of ownership."
       >
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <!-- Left: Server list -->

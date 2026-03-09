@@ -28,7 +28,6 @@ defmodule HiveWeb.AgentEditorLive do
       <.app_shell
         current={:agents}
         title="Agents"
-        subtitle="Define identity, capabilities, and MCP access in one place."
       >
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <!-- Left: Agent list -->

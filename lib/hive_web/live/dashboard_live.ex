@@ -28,13 +28,12 @@ defmodule HiveWeb.DashboardLive do
       <.app_shell
         current={:dashboard}
         title="Overview"
-        subtitle="A compact control plane for agents, containers, and the current runtime state."
       >
-        <:actions>
-          <.button navigate={~p"/agents"}>New agent</.button>
-        </:actions>
-
         <div class="ui-stack">
+          <div class="ui-section-row">
+            <h1 class="ui-page-title">Overview</h1>
+            <.button navigate={~p"/agents"}>New agent</.button>
+          </div>
           <section class="ui-card-grid">
             <div class="ui-card ui-card--stat">
               <p class="ui-section-label">Agents</p>

@@ -192,15 +192,19 @@ defmodule HiveWeb.ChatLive do
         <div class="ui-chat-screen">
           <div class={["ui-chat-layout", @aside_open && "ui-chat-layout--with-aside"]}>
             <section class="ui-chat-panel ui-surface">
-              <div class="ui-chat-panel__toolbar">
-                <button type="button" phx-click="toggle_aside" phx-value-tab="members" class={["ui-chat-meta ui-chat-meta--btn", @aside_open && @aside_tab == "members" && "is-active"]}>
-                  <.icon name="hero-user-group" class="size-4" />
-                  <span>{length(@members)} members</span>
-                </button>
-                <button :if={@containers != []} type="button" phx-click="toggle_aside" phx-value-tab="containers" class={["ui-chat-meta ui-chat-meta--btn", @aside_open && @aside_tab == "containers" && "is-active"]}>
-                  <.icon name="hero-cube" class="size-4" />
-                  <span>{length(@containers)}</span>
-                </button>
+              <div class="ui-chat-panel__header">
+                <h2 class="ui-chat-panel__title">{active_topic_label(@active_topic)}</h2>
+
+                <div class="flex items-center gap-2">
+                  <button type="button" phx-click="toggle_aside" phx-value-tab="containers" :if={@containers != []} class={["ui-chat-meta ui-chat-meta--btn", @aside_open && @aside_tab == "containers" && "is-active"]}>
+                    <.icon name="hero-cube" class="size-4" />
+                    <span>{length(@containers)}</span>
+                  </button>
+                  <button type="button" phx-click="toggle_aside" phx-value-tab="members" class={["ui-chat-meta ui-chat-meta--btn", @aside_open && @aside_tab == "members" && "is-active"]}>
+                    <.icon name="hero-user-group" class="size-4" />
+                    <span>{length(@members)} members</span>
+                  </button>
+                </div>
               </div>
 
               <div id="messages" class="ui-chat-messages" phx-hook="ScrollBottom">

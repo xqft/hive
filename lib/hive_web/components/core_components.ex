@@ -135,8 +135,6 @@ defmodule HiveWeb.CoreComponents do
   """
   attr :current, :atom, required: true
   attr :title, :string, required: true
-  attr :subtitle, :string, default: nil
-  slot :actions
   slot :sidebar_extra
   slot :inner_block, required: true
 
@@ -184,16 +182,6 @@ defmodule HiveWeb.CoreComponents do
       </aside>
 
       <div class="ui-workspace">
-        <header class="ui-workspace__header">
-          <div>
-            <h1 class="ui-page-title">{@title}</h1>
-            <p :if={@subtitle} class="ui-page-subtitle">{@subtitle}</p>
-          </div>
-
-          <div :if={@actions != []} class="flex items-center gap-3">
-            {render_slot(@actions)}
-          </div>
-        </header>
 
         <main class="ui-workspace__body">
           {render_slot(@inner_block)}

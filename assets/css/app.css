@@ -502,7 +502,7 @@ select {
 }
 
 .ui-chat-screen {
-  height: calc(100vh - 11rem);
+  height: calc(100vh - 4rem);
   min-height: 0;
 }
 
@@ -538,12 +538,19 @@ select {
   overflow: hidden;
 }
 
-.ui-chat-panel__toolbar {
+.ui-chat-panel__header {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1.15rem;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1.15rem;
   border-bottom: 1px solid var(--ui-border);
+}
+
+.ui-chat-panel__title {
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--ui-text-strong);
 }
 
 .ui-chat-meta {

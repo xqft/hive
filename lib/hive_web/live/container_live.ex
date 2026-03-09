@@ -26,21 +26,22 @@ defmodule HiveWeb.ContainerLive do
       <.app_shell
         current={:dashboard}
         title="Container"
-        subtitle={@container_id}
       >
-        <:actions>
-          <.button
-            :if={@status == :running}
-            phx-click="kill"
-            variant="danger"
-            data-confirm="Kill this container?"
-          >
-            Kill
-          </.button>
-          <.button navigate={~p"/dashboard"} variant="ghost">Back</.button>
-        </:actions>
-
         <div class="ui-stack">
+          <div class="ui-section-row">
+            <h1 class="ui-page-title">Container</h1>
+            <div class="flex items-center gap-2">
+              <.button
+                :if={@status == :running}
+                phx-click="kill"
+                variant="danger"
+                data-confirm="Kill this container?"
+              >
+                Kill
+              </.button>
+              <.button navigate={~p"/dashboard"} variant="ghost">Back</.button>
+            </div>
+          </div>
           <div class="ui-card ui-section-row">
             <div>
               <p class="ui-section-label">Container id</p>
