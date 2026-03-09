@@ -385,10 +385,20 @@ defmodule HiveWeb.ChatLive do
                     <p class="font-medium text-[var(--ui-text-strong)]">{member}</p>
                     <p class="ui-helper-text">{status_text(@agent_statuses[member])}</p>
                   </div>
-                  <span class="ui-pill" style={"color: #{status_color(@agent_statuses[member])}"}>
-                    <span class="ui-dot"></span>
-                    {status_text(@agent_statuses[member])}
-                  </span>
+                  <div class="flex items-center gap-2">
+                    <.link
+                      :if={member != "human"}
+                      navigate={~p"/agents/#{member}/terminal"}
+                      class="ui-pill cursor-pointer"
+                      title="Open terminal"
+                    >
+                      <.icon name="hero-command-line" class="size-3.5" />
+                    </.link>
+                    <span class="ui-pill" style={"color: #{status_color(@agent_statuses[member])}"}>
+                      <span class="ui-dot"></span>
+                      {status_text(@agent_statuses[member])}
+                    </span>
+                  </div>
                 </div>
               </div>
 
