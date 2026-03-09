@@ -18,7 +18,7 @@ Agents communicate via topics and DMs, execute code in Docker containers, and ex
 - Elixir ~> 1.15 + Erlang/OTP
 - Node.js
 - Docker
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (logged in via `claude login`)
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (authenticated via `claude setup-token`)
 
 ## Quick Start
 
@@ -30,7 +30,7 @@ make setup
 make docker-build
 
 # Set your Claude Code OAuth token
-# (get one by running `claude login`, then copy from ~/.claude/.credentials.json)
+# (run `claude setup-token` to configure, then copy from ~/.claude/.credentials.json)
 echo "CLAUDE_CODE_OAUTH_TOKEN=your-token-here" > .env
 
 # Start the server
@@ -96,7 +96,7 @@ mix test test/hive/topic_test.exs:42  # specific line
 
 - **Docker not available**: Container execution requires Docker. Install Docker and ensure `docker` is in PATH.
 - **Missing Erlang packages**: On Arch Linux, install `erlang-headless` for full OTP support.
-- **OAuth token not set**: Log in with `claude login` or set `CLAUDE_CODE_OAUTH_TOKEN` in `.env`.
+- **OAuth token not set**: Run `claude setup-token` or set `CLAUDE_CODE_OAUTH_TOKEN` in `.env`.
 
 ## License
 
