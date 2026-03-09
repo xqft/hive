@@ -818,8 +818,14 @@ defmodule HiveWeb.ChatLive do
 
   defp format_time(ts) when is_binary(ts) do
     case DateTime.from_iso8601(ts) do
-      {:ok, dt, _} -> Calendar.strftime(dt, "%b %d %H:%M")
-      _ -> ts
+      {:ok, dt, _} ->
+        Calendar.strftime(dt, "%b %d %H:%M")
+
+      _ ->
+        case NaiveDateTime.from_iso8601(String.replace(ts, " ", "T")) do
+          {:ok, ndt} -> Calendar.strftime(ndt, "%b %d %H:%M")
+          _ -> ts
+        end
     end
   end
 
