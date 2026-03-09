@@ -813,12 +813,12 @@ defmodule HiveWeb.ChatLive do
   defp status_text(_), do: "offline"
 
   defp format_time(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%H:%M")
+    Calendar.strftime(dt, "%b %d %H:%M")
   end
 
   defp format_time(ts) when is_binary(ts) do
     case DateTime.from_iso8601(ts) do
-      {:ok, dt, _} -> Calendar.strftime(dt, "%H:%M")
+      {:ok, dt, _} -> Calendar.strftime(dt, "%b %d %H:%M")
       _ -> ts
     end
   end
