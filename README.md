@@ -59,6 +59,10 @@ priv/sqlite/      — SQLite database (runtime, gitignored)
 |-----------|-------------|
 | ![Dashboard](docs/dashboard.png) | ![Agent Editor](docs/agents.png) |
 
+**Container execution** — agents run Claude Code in isolated Docker containers with live tmux streaming:
+
+![Container](docs/container.png)
+
 ## Development
 
 ```bash
