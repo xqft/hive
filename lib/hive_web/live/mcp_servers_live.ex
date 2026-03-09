@@ -28,7 +28,7 @@ defmodule HiveWeb.McpServersLive do
       >
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <!-- Left: Server list -->
-          <div class="ui-card">
+          <div class={["ui-card", @mobile_view == :editor && "ui-mobile-hidden"]}>
             <.button phx-click="new_server" class="w-full mb-4">Install MCP server</.button>
 
             <div :if={@mcp_servers == []} class="ui-empty">
@@ -63,8 +63,15 @@ defmodule HiveWeb.McpServersLive do
           </div>
           
     <!-- Right: Editor form -->
-          <div>
+          <div class={[@mobile_view == :list && "ui-mobile-hidden"]}>
             <div class="ui-card">
+              <button
+                type="button"
+                phx-click="mobile_back"
+                class="ui-mobile-back-btn"
+              >
+                <.icon name="hero-arrow-left" class="size-4" /> Back
+              </button>
               <h2 class="text-lg font-semibold mb-4 text-[var(--ui-text-strong)]">
                 {if @editing_existing, do: "Edit: #{@form_name}", else: "Install MCP Server"}
               </h2>
@@ -173,7 +180,11 @@ defmodule HiveWeb.McpServersLive do
 
   @impl true
   def handle_event("new_server", _params, socket) do
-    {:noreply, assign_new_form(socket)}
+    {:noreply, socket |> assign_new_form() |> assign(:mobile_view, :editor)}
+  end
+
+  def handle_event("mobile_back", _params, socket) do
+    {:noreply, assign(socket, :mobile_view, :list)}
   end
 
   def handle_event("select_server", %{"name" => name}, socket) do
@@ -196,6 +207,7 @@ defmodule HiveWeb.McpServersLive do
         |> assign(:command_error, nil)
         |> assign(:args_error, nil)
         |> assign(:env_error, nil)
+        |> assign(:mobile_view, :editor)
 
       {:noreply, socket}
     else
@@ -472,5 +484,6 @@ defmodule HiveWeb.McpServersLive do
     |> assign(:command_error, nil)
     |> assign(:args_error, nil)
     |> assign(:env_error, nil)
+    |> assign(:mobile_view, :list)
   end
 end

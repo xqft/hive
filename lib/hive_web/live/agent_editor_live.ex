@@ -31,7 +31,7 @@ defmodule HiveWeb.AgentEditorLive do
       >
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <!-- Left: Agent list -->
-          <div class="col-span-1 ui-card">
+          <div class={["col-span-1 ui-card", @mobile_view == :editor && "ui-mobile-hidden"]}>
             <.button phx-click="new_agent" class="w-full mb-4">New agent</.button>
 
             <div :if={@agents == []} class="ui-empty">
@@ -56,8 +56,15 @@ defmodule HiveWeb.AgentEditorLive do
           </div>
           
     <!-- Right: Editor form -->
-          <div class="col-span-1 lg:col-span-2">
+          <div class={["col-span-1 lg:col-span-2", @mobile_view == :list && "ui-mobile-hidden"]}>
             <div class="ui-card">
+              <button
+                type="button"
+                phx-click="mobile_back"
+                class="ui-mobile-back-btn"
+              >
+                <.icon name="hero-arrow-left" class="size-4" /> Back
+              </button>
               <h2 class="text-lg font-semibold mb-4 text-[var(--ui-text-strong)]">
                 {if @editing_existing, do: "Edit Agent: #{@form_name}", else: "New Agent"}
               </h2>
@@ -187,7 +194,11 @@ defmodule HiveWeb.AgentEditorLive do
 
   @impl true
   def handle_event("new_agent", _params, socket) do
-    {:noreply, assign_new_form(socket)}
+    {:noreply, socket |> assign_new_form() |> assign(:mobile_view, :editor)}
+  end
+
+  def handle_event("mobile_back", _params, socket) do
+    {:noreply, assign(socket, :mobile_view, :list)}
   end
 
   def handle_event("select_agent", %{"name" => name}, socket) do
@@ -208,6 +219,7 @@ defmodule HiveWeb.AgentEditorLive do
           |> assign(:assigned_mcps, assigned_mcps)
           |> assign(:assigned_mcp_tools, assigned_mcp_tools)
           |> assign(:name_error, nil)
+          |> assign(:mobile_view, :editor)
 
         {:noreply, socket}
 
@@ -570,6 +582,7 @@ defmodule HiveWeb.AgentEditorLive do
     |> assign(:name_error, nil)
     |> assign(:generating, false)
     |> assign(:generate_task, nil)
+    |> assign(:mobile_view, :list)
   end
 
   defp status_dot(agent_name) do

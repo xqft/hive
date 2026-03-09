@@ -223,6 +223,13 @@ const MentionProfileCard = {
   },
 
   position(anchor) {
+    // On mobile, CSS handles positioning via fixed bottom placement
+    if (window.innerWidth <= 768) {
+      this.el.style.top = ''
+      this.el.style.left = ''
+      return
+    }
+
     const rect = anchor.getBoundingClientRect()
     const cardRect = this.el.getBoundingClientRect()
     const top = Math.min(window.innerHeight - cardRect.height - 12, rect.bottom + 10)
