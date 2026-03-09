@@ -894,12 +894,15 @@ defmodule HiveWeb.ChatLive do
 
   defp scratchpad_event(%{event: {:text, _text, _ts}} = assigns) do
     ~H"""
-    <div class="scratchpad-entry scratchpad-text">
-      <span class="scratchpad-icon" style="color: var(--ui-accent);">
-        <.icon name="hero-chat-bubble-bottom-center-text" class="size-3.5" />
-      </span>
-      <span class="scratchpad-content">{elem(@event, 1)}</span>
-    </div>
+    <details class="scratchpad-entry scratchpad-text">
+      <summary class="scratchpad-summary">
+        <span class="scratchpad-icon" style="color: var(--ui-accent);">
+          <.icon name="hero-chat-bubble-bottom-center-text" class="size-3.5" />
+        </span>
+        <span class="scratchpad-label">Responded</span>
+      </summary>
+      <pre class="scratchpad-body">{elem(@event, 1)}</pre>
+    </details>
     """
   end
 

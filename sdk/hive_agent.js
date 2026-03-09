@@ -154,7 +154,7 @@ async function processNext(batch) {
           currentToolName = raw.content_block.name || "";
           currentToolUseId = raw.content_block.id || "";
           currentToolInput = "";
-          emit({ type: "tool_use_start", toolName: currentToolName, toolInput: {}, toolUseId: currentToolUseId });
+          // Don't emit yet — wait for content_block_stop to emit with full input
         } else if (raw.type === "content_block_delta") {
           if (raw.delta?.type === "thinking_delta") {
             thinkingDebouncer.push(raw.delta.thinking || "");
@@ -167,10 +167,12 @@ async function processNext(batch) {
           // Flush any pending text/thinking
           thinkingDebouncer.flush();
           textDebouncer.flush();
-          // If we accumulated tool input, emit updated tool_use_start with full input
-          if (currentToolInput && currentToolUseId) {
+          // Emit tool_use_start with accumulated input (or empty if no input was streamed)
+          if (currentToolUseId) {
             let parsedInput = {};
-            try { parsedInput = JSON.parse(currentToolInput); } catch (_) {}
+            if (currentToolInput) {
+              try { parsedInput = JSON.parse(currentToolInput); } catch (_) {}
+            }
             emit({ type: "tool_use_start", toolName: currentToolName, toolInput: parsedInput, toolUseId: currentToolUseId });
           }
           currentToolInput = "";
