@@ -763,25 +763,14 @@ defmodule Hive.Agent do
     - create_agent: spawn a new agent (name required, optional description/personality)
     - delete_agent: permanently remove an agent and its working directory
 
-    ### Execution — Interactive Containers
-    Containers are isolated Docker environments with a tmux session and a bash shell.
-    You drive them interactively via send_to_container and capture_container_output.
+    ### Environment
+    You run inside a persistent Docker container with your own workspace at /workspace.
+    Your workspace persists across restarts. You have full shell access via the SDK's
+    built-in tools (Bash, Read, Write, Edit, Grep, Glob, etc.).
 
-    - execute_in_container: launch an isolated Docker container with an empty bash shell.
-      Returns the container_id. You can run up to 16 containers simultaneously.
-    - send_to_container: send a command/input to a container's tmux session (+ Enter).
-      Use this to run shell commands, start programs, and interact with them.
-    - capture_container_output: read the current terminal output from a container.
-    - check_execution: check container status and recent output.
-    - container_new_window: create a new tmux window in a container.
-    - container_list_windows: list tmux windows in a container.
-
-    For coding tasks, start Claude Code interactively inside the container:
-      send_to_container(container_id, "claude --dangerously-skip-permissions")
-    Then use send_to_container to send prompts and steering input to the
-    interactive Claude Code session, and capture_container_output to read results.
-    The container has git, python3, node, and common dev tools pre-installed.
-    You'll be notified when the container exits or times out.
+    For coding tasks, use your built-in tools directly — no need to spawn separate
+    containers. Your workspace has git, python3, node, and common dev tools pre-installed.
+    Changes you make to files, installed packages, and cloned repos all persist.
 
     ### Self-Modification
     - write_skill: create or update your own skills (SKILL.md files). Skills persist
@@ -804,11 +793,10 @@ defmodule Hive.Agent do
       progress, stop responding and let others continue. Don't reply just to acknowledge
       -- only respond when you have new information, a question, or an actionable
       suggestion. If you've already made your point, stay silent.
-    - For code execution, file operations, or web tasks, use execute_in_container.
+    - For code execution, file operations, or web tasks, use your built-in tools directly.
     - Reply in the same channel that triggered the work. Do not move a topic
       conversation into a DM unless privacy or scope genuinely requires it.
     - You receive messages in real-time. Use get_topic_history only when you need older context.
-    - When a container completes, you'll receive a [system] notification with the result.
     - Do not invent provenance such as "project memory" or claim that you ran commands,
       inspected files, or changed code unless you actually used the corresponding tool.
     """
@@ -833,43 +821,10 @@ defmodule Hive.Agent do
       }
     }
 
-    tool_filters = %{}
-
-    # Add any assigned MCP servers from persistence
-    {mcp_servers, tool_filters} =
-      case Hive.Persistence.get_agent_mcp_servers(state.name) do
-        {:ok, servers} ->
-          Enum.reduce(servers, {mcp_servers, tool_filters}, fn srv, {ms, tf} ->
-            args = parse_json_field(srv.args, [])
-            env = parse_json_field(srv.env, %{})
-
-            server_config = %{"command" => srv.command, "args" => args}
-
-            server_config =
-              if env != %{}, do: Map.put(server_config, "env", env), else: server_config
-
-            ms = Map.put(ms, srv.name, server_config)
-
-            allowed = parse_json_field(srv.allowed_tools, [])
-
-            tf =
-              if allowed != [] do
-                Map.put(tf, srv.name, allowed)
-              else
-                tf
-              end
-
-            {ms, tf}
-          end)
-
-        _ ->
-          {mcp_servers, tool_filters}
-      end
-
     Jason.encode!(
       %{
         "mcpServers" => mcp_servers,
-        "toolFilters" => tool_filters
+        "toolFilters" => %{}
       },
       pretty: true
     )
@@ -915,49 +870,14 @@ defmodule Hive.Agent do
   # ---------------------------------------------------------------------------
 
   defp write_mcp_config(agent_name, secret) do
-    mcp_servers = %{
-      "hive" => %{
-        "command" => "node",
-        "args" => [mcp_bridge_script(), agent_name, secret, hive_url()]
-      }
-    }
-
-    tool_filters = %{}
-
-    # Add any assigned MCP servers from persistence
-    {mcp_servers, tool_filters} =
-      case Hive.Persistence.get_agent_mcp_servers(agent_name) do
-        {:ok, servers} ->
-          Enum.reduce(servers, {mcp_servers, tool_filters}, fn srv, {ms, tf} ->
-            args = parse_json_field(srv.args, [])
-            env = parse_json_field(srv.env, %{})
-
-            server_config = %{"command" => srv.command, "args" => args}
-
-            server_config =
-              if env != %{}, do: Map.put(server_config, "env", env), else: server_config
-
-            ms = Map.put(ms, srv.name, server_config)
-
-            allowed = parse_json_field(srv.allowed_tools, [])
-
-            tf =
-              if allowed != [] do
-                Map.put(tf, srv.name, allowed)
-              else
-                tf
-              end
-
-            {ms, tf}
-          end)
-
-        _ ->
-          {mcp_servers, tool_filters}
-      end
-
     config = %{
-      "mcpServers" => mcp_servers,
-      "toolFilters" => tool_filters
+      "mcpServers" => %{
+        "hive" => %{
+          "command" => "node",
+          "args" => [mcp_bridge_script(), agent_name, secret, hive_url()]
+        }
+      },
+      "toolFilters" => %{}
     }
 
     path = mcp_config_path(agent_name)
@@ -1183,5 +1103,4 @@ defmodule Hive.Agent do
     "http://localhost:#{port}"
   end
 
-  defdelegate parse_json_field(value, default), to: Hive.Util
 end

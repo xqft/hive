@@ -2,18 +2,20 @@ defmodule HiveWeb.ContainerLive do
   use HiveWeb, :live_view
 
   @impl true
-  def mount(%{"id" => container_id}, _session, socket) do
+  def mount(%{"name" => agent_name}, _session, socket) do
+    container_name = "hive-agent-#{agent_name}"
+
     if connected?(socket) do
-      Phoenix.PubSub.subscribe(Hive.PubSub, "container:#{container_id}")
-      Phoenix.PubSub.subscribe(Hive.PubSub, "containers")
+      Phoenix.PubSub.subscribe(Hive.PubSub, "container:#{container_name}")
     end
 
-    {status, _} = load_initial_state(container_id)
+    status = check_container_status(container_name)
 
     {:ok,
      assign(socket,
-       page_title: container_id,
-       container_id: container_id,
+       page_title: "Terminal: #{agent_name}",
+       container_id: container_name,
+       agent_name: agent_name,
        status: status,
        relay: nil
      )}
@@ -126,15 +128,15 @@ defmodule HiveWeb.ContainerLive do
   end
 
   def handle_event("kill", _params, socket) do
-    Hive.Container.kill(socket.assigns.container_id)
+    # Persistent containers are managed by the Agent GenServer; navigate back
     {:noreply, push_navigate(socket, to: ~p"/dashboard")}
   end
 
   # -- Private ----------------------------------------------------------------
 
   defp start_relay(container_id, cols, rows) do
-    case Hive.Container.check(container_id) do
-      {:ok, _} ->
+    case check_container_status(container_id) do
+      :running ->
         case Hive.TerminalRelay.start_link(
                container_id: container_id,
                viewer: self(),
@@ -145,15 +147,22 @@ defmodule HiveWeb.ContainerLive do
           {:error, _} -> nil
         end
 
-      {:error, :not_found} ->
+      _ ->
         nil
     end
   end
 
-  defp load_initial_state(container_id) do
-    case Hive.Container.check(container_id) do
-      {:ok, _status_string} -> {:running, []}
-      {:error, :not_found} -> {:not_found, []}
+  defp check_container_status(container_name) do
+    docker =
+      Application.get_env(:hive, :container_docker_executable) ||
+        System.find_executable("docker") ||
+        "docker"
+
+    case System.cmd(docker, ["container", "inspect", "-f", "{{.State.Running}}", container_name],
+           stderr_to_stdout: true
+         ) do
+      {"true\n", 0} -> :running
+      _ -> :not_found
     end
   end
 end

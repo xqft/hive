@@ -20,8 +20,7 @@ defmodule HiveWeb.Router do
     live "/", ChatLive
     live "/dashboard", DashboardLive
     live "/agents", AgentEditorLive
-    live "/mcp", McpServersLive
-    live "/containers/:id", ContainerLive
+    live "/agents/:name/terminal", ContainerLive
   end
 
   scope "/api", HiveWeb do

@@ -11,7 +11,6 @@ defmodule HiveWeb.ChatLive do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Hive.PubSub, "registry")
       Phoenix.PubSub.subscribe(Hive.PubSub, "agents")
-      Phoenix.PubSub.subscribe(Hive.PubSub, "containers")
     end
 
     # Load topics and agents from persistence
@@ -39,9 +38,6 @@ defmodule HiveWeb.ChatLive do
       schedule_active_topic_refresh()
     end
 
-    # Load containers from registry
-    containers = load_containers()
-
     socket =
       socket
       |> assign(:topics, topics)
@@ -53,7 +49,6 @@ defmodule HiveWeb.ChatLive do
       |> assign(:members, members)
       |> assign(:agents, all_agents)
       |> assign(:agent_statuses, agent_statuses)
-      |> assign(:containers, containers)
       |> assign(:page_title, "Chat")
       |> assign(:show_create_topic, false)
       |> assign(:show_new_dm, false)
@@ -207,19 +202,6 @@ defmodule HiveWeb.ChatLive do
                 <h2 class="ui-chat-panel__title">{active_topic_label(@active_topic)}</h2>
 
                 <div class="flex items-center gap-2">
-                  <button
-                    :if={@containers != []}
-                    type="button"
-                    phx-click="toggle_aside"
-                    phx-value-tab="containers"
-                    class={[
-                      "ui-chat-meta ui-chat-meta--btn",
-                      @aside_open && @aside_tab == "containers" && "is-active"
-                    ]}
-                  >
-                    <.icon name="hero-cube" class="size-4" />
-                    <span>{length(@containers)}</span>
-                  </button>
                   <button
                     type="button"
                     phx-click="toggle_aside"
@@ -379,14 +361,6 @@ defmodule HiveWeb.ChatLive do
                   >
                     Activity
                   </button>
-                  <button
-                    type="button"
-                    phx-click="switch_aside_tab"
-                    phx-value-tab="containers"
-                    class={["ui-chat-aside__tab", @aside_tab == "containers" && "is-active"]}
-                  >
-                    Containers
-                  </button>
                 </div>
                 <button
                   type="button"
@@ -460,27 +434,6 @@ defmodule HiveWeb.ChatLive do
                 </div>
               </div>
 
-              <div :if={@aside_tab == "containers"} class="ui-stack">
-                <div :if={@containers == []} class="ui-empty">No active containers right now.</div>
-
-                <.link
-                  :for={container <- @containers}
-                  navigate={~p"/containers/#{container.id}"}
-                  class="ui-container-card-link"
-                >
-                  <div class="ui-card ui-stack">
-                    <div>
-                      <p class="text-sm text-[var(--ui-text-strong)]">
-                        {container.task || "Running..."}
-                      </p>
-                      <div class="mt-1.5 flex items-center gap-2">
-                        <span class="ui-pill">{container.agent || "container"}</span>
-                        <span class="ui-container-card-meta">{short_container_id(container.id)}</span>
-                      </div>
-                    </div>
-                  </div>
-                </.link>
-              </div>
             </aside>
           </div>
         </div>
@@ -708,11 +661,6 @@ defmodule HiveWeb.ChatLive do
      |> assign(:scratchpad_events, events)}
   end
 
-  def handle_event("kill_container", %{"id" => id}, socket) do
-    Hive.Container.kill(id)
-    {:noreply, socket}
-  end
-
   # ---------------------------------------------------------------------------
   # PubSub handlers
   # ---------------------------------------------------------------------------
@@ -816,23 +764,6 @@ defmodule HiveWeb.ChatLive do
     agents = load_agents()
     agent_statuses = build_agent_statuses(agents)
     {:noreply, assign(socket, agents: agents, agent_statuses: agent_statuses)}
-  end
-
-  # Container started
-  def handle_info({:started, agent_name, id, task}, socket) do
-    container = %{id: id, task: task, agent: agent_name}
-
-    {:noreply,
-     socket
-     |> assign(:containers, upsert_container(socket.assigns.containers, container))
-     |> assign(:aside_open, true)
-     |> assign(:aside_tab, "containers")}
-  end
-
-  # Container stopped
-  def handle_info({:stopped, id, _status}, socket) do
-    containers = Enum.reject(socket.assigns.containers, fn c -> c.id == id end)
-    {:noreply, assign(socket, :containers, containers)}
   end
 
   # Scratchpad events from agent activity
@@ -1001,35 +932,6 @@ defmodule HiveWeb.ChatLive do
     end)
   end
 
-  defp load_containers do
-    # Get all containers from the registry
-    try do
-      Hive.ContainerRegistry
-      |> Registry.select([{{:"$1", :"$2", :"$3"}, [], [{{:"$1", :"$2", :"$3"}}]}])
-      |> Enum.map(fn {id, pid, agent_name} ->
-        task =
-          try do
-            {:ok, status_str} = GenServer.call(pid, :check)
-            # Extract task line from the status string
-            status_str
-            |> String.split("\n")
-            |> Enum.find_value("", fn line ->
-              case String.split(line, "Task: ", parts: 2) do
-                [_, task] -> task
-                _ -> nil
-              end
-            end)
-          catch
-            _, _ -> ""
-          end
-
-        %{id: id, task: task, agent: agent_name}
-      end)
-    rescue
-      _ -> []
-    end
-  end
-
   defp status_color(:idle), do: "var(--ui-success)"
   defp status_color(:thinking), do: "var(--ui-warning)"
   defp status_color(_), do: "var(--ui-text-soft)"
@@ -1096,9 +998,6 @@ defmodule HiveWeb.ChatLive do
   defp composer_placeholder("dm:" <> _ = name), do: "Message @#{dm_other_party(name, "human")}..."
   defp composer_placeholder(topic), do: "Message ##{topic}..."
 
-  defp short_container_id(id) when is_binary(id), do: String.slice(id, 0, 12)
-  defp short_container_id(_), do: ""
-
   defp update_typing_agents(typing_agents, agent, true) do
     typing_agents
     |> Kernel.++([agent])
@@ -1115,12 +1014,6 @@ defmodule HiveWeb.ChatLive do
   end
 
   defp maybe_remove_typing_agent(socket, _agent, _status), do: socket
-
-  defp upsert_container(containers, container) do
-    containers
-    |> Enum.reject(fn current -> current.id == container.id end)
-    |> Kernel.++([container])
-  end
 
   defp subscribe_to_topics(topics) do
     Enum.each(topics, fn topic ->

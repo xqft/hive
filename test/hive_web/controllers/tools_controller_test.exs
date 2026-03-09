@@ -158,9 +158,8 @@ defmodule HiveWeb.ToolsControllerTest do
         send_message send_dm create_topic join_topic leave_topic
         get_topic_history list_agents list_topics
         create_agent delete_agent
-        execute_in_container check_execution
         write_skill read_skill delete_skill write_claude_md
-        upload_media extract_container_file view_image
+        upload_media view_image
       )
 
       for tool <- known_tools do
@@ -608,71 +607,6 @@ defmodule HiveWeb.ToolsControllerTest do
       |> json_response(200)
 
       refute File.exists?(dir)
-    end
-  end
-
-  describe "execute_in_container" do
-    setup do
-      put_hive_env(:container_docker_available, true)
-      put_hive_env(:container_image_available, true)
-      put_hive_env(:claude_oauth_token, "test-oauth-token")
-      :ok
-    end
-
-    test "accepts empty task as interactive session", %{conn: conn} do
-      body =
-        conn
-        |> tool_call("test-agent", "execute_in_container", %{"task" => "   "})
-        |> json_response(200)
-
-      assert body["ok"] == true
-    end
-
-    test "rejects timeout outside allowed bounds", %{conn: conn} do
-      body =
-        conn
-        |> tool_call("test-agent", "execute_in_container", %{
-          "task" => "run tests",
-          "timeout_minutes" => 0
-        })
-        |> json_response(200)
-
-      assert body["ok"] == false
-      assert body["error"] =~ "timeout_minutes must be between 1 and 60"
-    end
-
-    test "rejects when docker is unavailable", %{conn: conn} do
-      put_hive_env(:container_docker_available, false)
-
-      body =
-        conn
-        |> tool_call("test-agent", "execute_in_container", %{"task" => "run tests"})
-        |> json_response(200)
-
-      assert body == %{"ok" => false, "error" => "docker is not installed or not on PATH"}
-    end
-
-    test "rejects when image is unavailable", %{conn: conn} do
-      put_hive_env(:container_image_available, false)
-
-      body =
-        conn
-        |> tool_call("test-agent", "execute_in_container", %{"task" => "run tests"})
-        |> json_response(200)
-
-      assert body["ok"] == false
-      assert body["error"] =~ "container image hive-claude-code:latest is not available locally"
-    end
-
-    test "rejects when oauth token is missing", %{conn: conn} do
-      put_hive_env(:claude_oauth_token, nil)
-
-      body =
-        conn
-        |> tool_call("test-agent", "execute_in_container", %{"task" => "run tests"})
-        |> json_response(200)
-
-      assert body == %{"ok" => false, "error" => "CLAUDE_CODE_OAUTH_TOKEN is not configured"}
     end
   end
 

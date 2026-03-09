@@ -18,14 +18,12 @@ defmodule Hive.Application do
       # Registries
       {Registry, keys: :unique, name: Hive.TopicRegistry},
       {Registry, keys: :unique, name: Hive.AgentRegistry},
-      {Registry, keys: :unique, name: Hive.ContainerRegistry},
       {Registry, keys: :unique, name: Hive.TerminalRelayRegistry},
       # Persistence (SQLite) — must start before topics/agents
       Hive.Persistence,
       # Dynamic supervisors
       {DynamicSupervisor, name: Hive.TopicSup, strategy: :one_for_one},
       {DynamicSupervisor, name: Hive.AgentSup, strategy: :one_for_one},
-      {DynamicSupervisor, name: Hive.ContainerSup, strategy: :one_for_one},
       {DynamicSupervisor, name: Hive.TerminalRelaySup, strategy: :one_for_one},
       # Boot task — restores topics and agents from DB after supervisors are up
       {Task, &boot/0},
@@ -44,7 +42,6 @@ defmodule Hive.Application do
   end
 
   defp boot do
-    Hive.Container.cleanup_orphaned_containers()
     restore_topics()
     restore_agents()
     Logger.info("Hive boot complete")
