@@ -33,6 +33,7 @@ async function processNext(batch) {
       "mcp__hive__create_topic", "mcp__hive__join_topic",
       "mcp__hive__leave_topic", "mcp__hive__get_topic_history",
       "mcp__hive__list_agents", "mcp__hive__list_topics",
+      "mcp__hive__create_agent", "mcp__hive__delete_agent",
       "mcp__hive__execute_in_container", "mcp__hive__check_execution",
       "mcp__hive__send_to_container", "mcp__hive__capture_container_output",
       "mcp__hive__container_new_window", "mcp__hive__container_list_windows",

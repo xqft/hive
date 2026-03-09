@@ -715,6 +715,17 @@ defmodule HiveWeb.ChatLive do
     {:noreply, socket}
   end
 
+  # Registry changes: agent created or deleted
+  def handle_info({:agent_created, _name}, socket) do
+    {:noreply, assign(socket, :agents, load_agents())}
+  end
+
+  def handle_info({:agent_deleted, _name}, socket) do
+    agents = load_agents()
+    agent_statuses = build_agent_statuses(agents)
+    {:noreply, assign(socket, agents: agents, agent_statuses: agent_statuses)}
+  end
+
   # Container started
   def handle_info({:started, agent_name, id, task}, socket) do
     container = %{id: id, task: task, agent: agent_name}

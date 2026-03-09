@@ -6,6 +6,7 @@ defmodule HiveWeb.DashboardLive do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Hive.PubSub, "agents")
       Phoenix.PubSub.subscribe(Hive.PubSub, "containers")
+      Phoenix.PubSub.subscribe(Hive.PubSub, "registry")
     end
 
     agents = load_agents()
@@ -153,6 +154,18 @@ defmodule HiveWeb.DashboardLive do
   def handle_info({:stopped, id, _reason}, socket) do
     containers = Enum.reject(socket.assigns.containers, &(&1.id == id))
     {:noreply, assign(socket, :containers, containers)}
+  end
+
+  def handle_info({:agent_created, _name}, socket) do
+    agents = load_agents()
+    statuses = build_status_map(agents)
+    {:noreply, assign(socket, agents: agents, statuses: statuses)}
+  end
+
+  def handle_info({:agent_deleted, _name}, socket) do
+    agents = load_agents()
+    statuses = build_status_map(agents)
+    {:noreply, assign(socket, agents: agents, statuses: statuses)}
   end
 
   def handle_info(_msg, socket) do

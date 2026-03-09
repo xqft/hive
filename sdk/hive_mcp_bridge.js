@@ -45,6 +45,16 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {} }},
   { name: "list_topics", description: "List all topics with descriptions and subscriber counts",
     inputSchema: { type: "object", properties: {} }},
+  { name: "create_agent", description: "Create a new agent. The agent starts immediately.",
+    inputSchema: { type: "object", properties: {
+      name: { type: "string", description: "Agent name (alphanumeric, hyphens, underscores)" },
+      description: { type: "string", description: "What this agent does" },
+      personality: { type: "string", description: "Agent personality/instructions (becomes CLAUDE.md)" }
+    }, required: ["name"] }},
+  { name: "delete_agent", description: "Delete an agent permanently, including its working directory.",
+    inputSchema: { type: "object", properties: {
+      name: { type: "string", description: "Agent name to delete" }
+    }, required: ["name"] }},
   { name: "execute_in_container", description: "Launch an isolated Docker container with a bash shell in a tmux session. Use send_to_container to run commands interactively. For coding tasks, start Claude Code with: send_to_container(id, 'claude --dangerously-skip-permissions'). You'll be notified when the container exits or times out.",
     inputSchema: { type: "object", properties: {
       task: { type: "string", description: "Optional label describing what this container is for (for tracking)" },

@@ -551,9 +551,11 @@ defmodule Hive.Agent do
     - join_topic / leave_topic: manage your subscriptions
     - get_topic_history: read past messages from a topic (doesn't bloat your context)
 
-    ### Discovery
+    ### Discovery & Orchestration
     - list_agents: see all agents, their descriptions, and current status
     - list_topics: see all topics, descriptions, and subscriber counts
+    - create_agent: spawn a new agent (name required, optional description/personality)
+    - delete_agent: permanently remove an agent and its working directory
 
     ### Execution — Interactive Containers
     Containers are isolated Docker environments with a tmux session and a bash shell.

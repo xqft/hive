@@ -15,6 +15,7 @@ defmodule HiveWeb.ToolsController do
   @agent_tools ~w(
     send_message send_dm create_topic join_topic leave_topic
     get_topic_history list_agents list_topics
+    create_agent delete_agent
     execute_in_container check_execution
     send_to_container capture_container_output
     container_new_window container_list_windows
@@ -185,6 +186,49 @@ defmodule HiveWeb.ToolsController do
 
       {:error, _} = error ->
         error
+    end
+  end
+
+  defp execute_tool(_agent, "create_agent", params) do
+    name = params["name"]
+    description = params["description"] || ""
+    personality = params["personality"] || ""
+
+    with :ok <- Hive.Validation.validate_name(name),
+         :ok <- Hive.Persistence.create_agent(name, description, personality) do
+      DynamicSupervisor.start_child(
+        Hive.AgentSup,
+        {Hive.Agent, name: name, description: description, personality: personality}
+      )
+
+      Phoenix.PubSub.broadcast(Hive.PubSub, "registry", {:agent_created, name})
+
+      {:ok, "Agent '#{name}' created"}
+    end
+  end
+
+  defp execute_tool(_agent, "delete_agent", %{"name" => name}) do
+    case Hive.Persistence.get_agent(name) do
+      {:ok, nil} ->
+        {:error, "Agent '#{name}' not found"}
+
+      {:ok, _agent} ->
+        # Stop the GenServer (may already be stopped)
+        try do
+          Hive.Agent.stop(name)
+        catch
+          :exit, _ -> :ok
+        end
+
+        Hive.Persistence.delete_agent(name)
+
+        # Clean up working directory
+        agent_dir = Path.join(["priv", "agents", name]) |> Path.expand()
+        File.rm_rf(agent_dir)
+
+        Phoenix.PubSub.broadcast(Hive.PubSub, "registry", {:agent_deleted, name})
+
+        {:ok, "Agent '#{name}' deleted"}
     end
   end
 

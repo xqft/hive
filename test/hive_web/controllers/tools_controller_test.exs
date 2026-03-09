@@ -157,6 +157,7 @@ defmodule HiveWeb.ToolsControllerTest do
       known_tools = ~w(
         send_message send_dm create_topic join_topic leave_topic
         get_topic_history list_agents list_topics
+        create_agent delete_agent
         execute_in_container check_execution
         write_skill read_skill delete_skill write_claude_md
         upload_media extract_container_file view_image
@@ -476,6 +477,137 @@ defmodule HiveWeb.ToolsControllerTest do
       body = json_response(read_conn, 200)
       assert body["ok"] == false
       assert body["error"] =~ "not found"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # create_agent
+  # ---------------------------------------------------------------------------
+
+  describe "create_agent" do
+    test "creates an agent with valid name", %{conn: conn} do
+      name = unique("new-agent")
+      cleanup_agent(name)
+      on_exit(fn -> File.rm_rf(agent_dir(name)) end)
+
+      body =
+        conn
+        |> tool_call("test-agent", "create_agent", %{
+          "name" => name,
+          "description" => "A spawned agent",
+          "personality" => "Be helpful"
+        })
+        |> json_response(200)
+
+      assert body["ok"] == true
+      assert body["result"] =~ name
+      assert body["result"] =~ "created"
+
+      {:ok, persisted} = Hive.Persistence.get_agent(name)
+      assert persisted.name == name
+      assert persisted.description == "A spawned agent"
+    end
+
+    test "uses empty defaults for optional params", %{conn: conn} do
+      name = unique("minimal-agent")
+      cleanup_agent(name)
+      on_exit(fn -> File.rm_rf(agent_dir(name)) end)
+
+      body =
+        conn
+        |> tool_call("test-agent", "create_agent", %{"name" => name})
+        |> json_response(200)
+
+      assert body["ok"] == true
+
+      {:ok, persisted} = Hive.Persistence.get_agent(name)
+      assert persisted.description == ""
+      assert persisted.personality == ""
+    end
+
+    test "rejects invalid agent name", %{conn: conn} do
+      body =
+        conn
+        |> tool_call("test-agent", "create_agent", %{"name" => "bad name!"})
+        |> json_response(200)
+
+      assert body["ok"] == false
+      assert body["error"] =~ "invalid_name"
+    end
+
+    test "rejects duplicate agent name", %{conn: conn} do
+      name = unique("dup-agent")
+      Hive.Persistence.create_agent(name, "first", "")
+      cleanup_agent(name)
+
+      body =
+        conn
+        |> tool_call("test-agent", "create_agent", %{"name" => name})
+        |> json_response(200)
+
+      assert body["ok"] == false
+      assert body["error"] =~ "name_taken"
+    end
+
+    test "rejects name collision with existing topic", %{conn: conn} do
+      name = unique("collision")
+      :ok = Hive.Persistence.create_topic(name, "a topic", "topic", "test-agent")
+      cleanup_topic(name)
+
+      body =
+        conn
+        |> tool_call("test-agent", "create_agent", %{"name" => name})
+        |> json_response(200)
+
+      assert body["ok"] == false
+      assert body["error"] =~ "name_taken"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # delete_agent
+  # ---------------------------------------------------------------------------
+
+  describe "delete_agent" do
+    test "deletes an existing agent", %{conn: conn} do
+      name = unique("del-agent")
+      Hive.Persistence.create_agent(name, "to delete", "")
+
+      body =
+        conn
+        |> tool_call("test-agent", "delete_agent", %{"name" => name})
+        |> json_response(200)
+
+      assert body["ok"] == true
+      assert body["result"] =~ "deleted"
+
+      {:ok, nil} = Hive.Persistence.get_agent(name)
+    end
+
+    test "returns error for non-existent agent", %{conn: conn} do
+      body =
+        conn
+        |> tool_call("test-agent", "delete_agent", %{"name" => "ghost-agent"})
+        |> json_response(200)
+
+      assert body["ok"] == false
+      assert body["error"] =~ "not found"
+    end
+
+    test "cleans up working directory", %{conn: conn} do
+      name = unique("cleanup-agent")
+      Hive.Persistence.create_agent(name, "cleanup test", "")
+
+      # Create working directory with some content
+      dir = agent_dir(name)
+      File.mkdir_p!(Path.join(dir, ".claude/skills/test"))
+      File.write!(Path.join(dir, "CLAUDE.md"), "test")
+
+      conn
+      |> tool_call("test-agent", "delete_agent", %{"name" => name})
+      |> json_response(200)
+
+      refute File.exists?(dir)
     end
   end
 
