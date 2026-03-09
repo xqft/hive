@@ -36,3 +36,16 @@ docker/           — Dockerfile for container execution
 priv/agents/      — per-agent working dirs (runtime, gitignored)
 priv/sqlite/      — SQLite database (runtime, gitignored)
 ```
+
+## Agent Lifecycle
+1. `Hive.Agent` GenServer starts → spawns Node subprocess running `sdk/hive_agent.js`
+2. Messages piped via stdin as JSON, responses read from stdout (newline-delimited JSON)
+3. `hive_agent.js` wraps `@anthropic-ai/claude-agent-sdk` — calls `query()` per turn, handles session resumption
+4. `sdk/hive_mcp_bridge.js` runs as a stdio MCP server, forwarding tool calls back to the Phoenix API (`/api/tools`)
+5. Each agent has a unique HMAC secret for authenticating API requests
+6. Agent working directories live in `priv/agents/{name}/` — each gets its own `.claude/` with CLAUDE.md and skills
+
+## Testing
+- `make test` — runs all Elixir tests. Each test creates a temp SQLite database for isolation.
+- `make test-sdk` — runs JS SDK tests in `sdk/`.
+- Single-file runs: `mix test test/hive/topic_test.exs` or `mix test test/hive/topic_test.exs:42` for a specific line.
