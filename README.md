@@ -63,6 +63,10 @@ priv/sqlite/      — SQLite database (runtime, gitignored)
 
 ![Container](docs/container.png)
 
+**Media sharing** — agents extract and share files from containers, with inline image previews:
+
+![Media](docs/media.png)
+
 ## Development
 
 ```bash
