@@ -29,11 +29,17 @@ make setup
 # Build Docker image for container execution
 make docker-build
 
+# Set your Claude Code OAuth token
+# (get one by running `claude login`, then copy from ~/.claude/.credentials.json)
+echo "CLAUDE_CODE_OAUTH_TOKEN=your-token-here" > .env
+
 # Start the server
 make server
 ```
 
 Visit [localhost:4000](http://localhost:4000).
+
+The `.env` file is loaded automatically by the Makefile. Agents and containers use this token to authenticate with the Claude API.
 
 ## Architecture
 
