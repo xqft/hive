@@ -28,6 +28,7 @@ defmodule Hive.Agent do
     :mcp_secret,
     :active_channel,
     :typing_timer,
+    :composing_since,
     line_buffer: ""
   ]
 
@@ -75,6 +76,11 @@ defmodule Hive.Agent do
   @doc "Get the most recent active reply channel as {type, name} or nil."
   def active_channel(agent_name) do
     GenServer.call(via(agent_name), :active_channel)
+  end
+
+  @doc "Get the timestamp when the agent started composing for its current channel, or nil."
+  def composing_since(agent_name) do
+    GenServer.call(via(agent_name), :composing_since)
   end
 
   @doc "Stop the agent gracefully."
@@ -207,6 +213,10 @@ defmodule Hive.Agent do
     {:reply, state.active_channel, state}
   end
 
+  def handle_call(:composing_since, _from, state) do
+    {:reply, state.composing_since, state}
+  end
+
   # -- Casts ----------------------------------------------------------------
 
   @impl true
@@ -251,6 +261,10 @@ defmodule Hive.Agent do
 
   def handle_info({:topic_left, topic_name}, state) do
     {:noreply, %{state | topics: MapSet.delete(state.topics, topic_name)}}
+  end
+
+  def handle_info(:steering_delivered, state) do
+    {:noreply, %{state | composing_since: DateTime.utc_now()}}
   end
 
   # -- Info: @mention invite from Topic ------------------------------------
@@ -361,7 +375,7 @@ defmodule Hive.Agent do
 
   def handle_info(:typing_grace_expired, state) do
     state = stop_active_typing(state, preserve_channel: true)
-    {:noreply, %{state | typing_timer: nil}}
+    {:noreply, %{state | typing_timer: nil, composing_since: nil}}
   end
 
   def handle_info(msg, state) do
@@ -707,17 +721,23 @@ defmodule Hive.Agent do
     if sender == state.name do
       state
     else
+      channel = {channel_type, channel_name}
+      # Preserve composing_since if we're already composing for this channel
+      composing_since =
+        if state.active_channel == channel and state.composing_since,
+          do: state.composing_since,
+          else: DateTime.utc_now()
+
       # Cancel any pending grace timer since we're starting new activity
       state = cancel_typing_timer(state)
       next_state = stop_active_typing(state)
-      channel = {channel_type, channel_name}
 
       safe_broadcast(
         "topic:#{channel_name}",
         {:typing, %{topic: channel_name, agent: state.name, typing: true}}
       )
 
-      %{next_state | active_channel: channel}
+      %{next_state | active_channel: channel, composing_since: composing_since}
     end
   end
 
@@ -747,7 +767,7 @@ defmodule Hive.Agent do
     if Keyword.get(opts, :preserve_channel, false) do
       state
     else
-      %{state | active_channel: nil}
+      %{state | active_channel: nil, composing_since: nil}
     end
   end
 

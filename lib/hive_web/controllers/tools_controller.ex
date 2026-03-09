@@ -73,6 +73,7 @@ defmodule HiveWeb.ToolsController do
 
   defp execute_tool(agent, "send_message", %{"text" => text} = params) do
     with {:ok, topic} <- resolve_topic_reply_target(agent, params),
+         :ok <- check_steering(agent, topic),
          :ok <- Hive.Topic.post(topic, agent, text) do
       {:ok, "Message sent to #{topic}"}
     else
@@ -83,6 +84,7 @@ defmodule HiveWeb.ToolsController do
   defp execute_tool(agent, "send_dm", %{"text" => text} = params) do
     with {:ok, recipient} <- resolve_dm_recipient(agent, params),
          {:ok, dm_name} <- Hive.Topic.ensure_dm(agent, recipient),
+         :ok <- check_steering(agent, dm_name),
          :ok <- Hive.Topic.post(dm_name, agent, text) do
       {:ok, "DM sent to #{recipient}"}
     else
@@ -475,4 +477,65 @@ defmodule HiveWeb.ToolsController do
   end
 
   defp blank_to_nil(value), do: value
+
+  # ---------------------------------------------------------------------------
+  # Mid-turn steering: surface new messages before the agent sends
+  # ---------------------------------------------------------------------------
+
+  defp check_steering(agent, topic) do
+    composing_since = agent_composing_since(agent)
+
+    if is_nil(composing_since) do
+      :ok
+    else
+      new_messages =
+        topic
+        |> Hive.Topic.recent(10)
+        |> Enum.filter(fn msg ->
+          msg.sender != agent and DateTime.compare(msg.ts, composing_since) == :gt
+        end)
+
+      if new_messages == [] do
+        :ok
+      else
+        # Advance composing_since so the next send_message goes through
+        notify_steering_delivered(agent)
+
+        formatted =
+          new_messages
+          |> Enum.reverse()
+          |> Enum.map_join("\n", fn msg ->
+            "[#{format_history_timestamp(msg.ts)}] #{msg.sender} (#{sender_kind(msg.sender)}): #{msg.body}"
+          end)
+
+        {:error,
+         "HOLD — new messages arrived in #{topic} while you were composing. " <>
+           "Review them before sending:\n#{formatted}\n\n" <>
+           "Reconsider your message. Call send_message again (same or updated text) when ready."}
+      end
+    end
+  end
+
+  defp agent_composing_since(agent) do
+    overrides = Application.get_env(:hive, :agent_composing_since_overrides, %{})
+
+    case Map.get(overrides, agent) do
+      nil ->
+        try do
+          Hive.Agent.composing_since(agent)
+        catch
+          :exit, _ -> nil
+        end
+
+      override ->
+        override
+    end
+  end
+
+  defp notify_steering_delivered(agent) do
+    case Registry.lookup(Hive.AgentRegistry, agent) do
+      [{pid, _}] -> send(pid, :steering_delivered)
+      [] -> :ok
+    end
+  end
 end

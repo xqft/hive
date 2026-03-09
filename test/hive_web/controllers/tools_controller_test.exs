@@ -794,6 +794,120 @@ defmodule HiveWeb.ToolsControllerTest do
   end
 
   # ---------------------------------------------------------------------------
+  # Mid-turn steering (REGRESSION: agents didn't see new messages before sending)
+  # ---------------------------------------------------------------------------
+
+  describe "send_message steering" do
+    setup %{conn: conn} do
+      topic_name = unique("steer-topic")
+      :ok = Hive.Persistence.create_topic(topic_name, "steering test", "topic", "test-agent")
+
+      start_supervised!(
+        {Hive.Topic,
+         name: topic_name, description: "steering test", type: :topic, created_by: "test-agent"}
+      )
+
+      Hive.Topic.join(topic_name, "test-agent")
+
+      # Set active channel override so send_message resolves the topic
+      put_hive_env(:agent_active_channel_overrides, %{"test-agent" => {"topic", topic_name}})
+
+      on_exit(fn -> Hive.Persistence.delete_topic(topic_name) end)
+
+      {:ok, conn: conn, topic_name: topic_name}
+    end
+
+    test "blocks send_message when new messages arrived since composing started",
+         %{conn: conn, topic_name: topic_name} do
+      # Agent started composing BEFORE the new message
+      composing_since = DateTime.utc_now()
+      put_hive_env(:agent_composing_since_overrides, %{"test-agent" => composing_since})
+
+      # Another agent posts a message AFTER composing started
+      Process.sleep(10)
+      Hive.Topic.post(topic_name, "other-agent", "actually, wait — I already handled it")
+
+      body =
+        conn
+        |> tool_call("test-agent", "send_message", %{
+          topic: topic_name,
+          text: "I'll take care of it"
+        })
+        |> json_response(200)
+
+      assert body["ok"] == false
+      assert body["error"] =~ "HOLD"
+      assert body["error"] =~ "actually, wait"
+      assert body["error"] =~ "Reconsider"
+
+      # Message should NOT have been sent
+      recent = Hive.Topic.recent(topic_name, 10)
+      refute Enum.any?(recent, fn m -> m.body == "I'll take care of it" end)
+    end
+
+    test "allows send_message when no new messages since composing started",
+         %{conn: conn, topic_name: topic_name} do
+      # Post a message BEFORE composing started
+      Hive.Topic.post(topic_name, "other-agent", "old message")
+      Process.sleep(10)
+
+      # Agent starts composing AFTER the message
+      composing_since = DateTime.utc_now()
+      put_hive_env(:agent_composing_since_overrides, %{"test-agent" => composing_since})
+
+      body =
+        conn
+        |> tool_call("test-agent", "send_message", %{
+          topic: topic_name,
+          text: "my response"
+        })
+        |> json_response(200)
+
+      assert body["ok"] == true
+      assert body["result"] =~ "Message sent"
+    end
+
+    test "ignores agent's own messages for steering",
+         %{conn: conn, topic_name: topic_name} do
+      composing_since = DateTime.utc_now()
+      put_hive_env(:agent_composing_since_overrides, %{"test-agent" => composing_since})
+
+      # Agent's own message posted during composing — should not trigger steering
+      Process.sleep(10)
+      Hive.Topic.post(topic_name, "test-agent", "my earlier message")
+
+      body =
+        conn
+        |> tool_call("test-agent", "send_message", %{
+          topic: topic_name,
+          text: "follow-up"
+        })
+        |> json_response(200)
+
+      assert body["ok"] == true
+      assert body["result"] =~ "Message sent"
+    end
+
+    test "skips steering when composing_since is nil (not composing)",
+         %{conn: conn, topic_name: topic_name} do
+      # No composing_since override — defaults to nil (no Agent GenServer)
+      put_hive_env(:agent_composing_since_overrides, %{})
+
+      Hive.Topic.post(topic_name, "other-agent", "some message")
+
+      body =
+        conn
+        |> tool_call("test-agent", "send_message", %{
+          topic: topic_name,
+          text: "response"
+        })
+        |> json_response(200)
+
+      assert body["ok"] == true
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # list_agents
   # ---------------------------------------------------------------------------
 
