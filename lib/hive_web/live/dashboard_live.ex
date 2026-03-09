@@ -77,7 +77,6 @@ defmodule HiveWeb.DashboardLive do
               </div>
             </div>
           </section>
-
         </div>
       </.app_shell>
     </Layouts.app>
@@ -163,5 +162,4 @@ defmodule HiveWeb.DashboardLive do
       {agent.name, status}
     end)
   end
-
 end

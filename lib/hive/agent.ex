@@ -212,9 +212,7 @@ defmodule Hive.Agent do
       docker = docker_executable()
       Logger.info("Agent #{state.name} stopping container #{state.container_name}")
 
-      System.cmd(docker, ["stop", "-t", "5", state.container_name],
-        stderr_to_stdout: true
-      )
+      System.cmd(docker, ["stop", "-t", "5", state.container_name], stderr_to_stdout: true)
     end
 
     :ok
@@ -392,7 +390,8 @@ defmodule Hive.Agent do
 
         {:noreply, state}
 
-      {:ok, %{"type" => "tool_use_start", "toolName" => tool_name, "toolUseId" => tool_use_id} = msg} ->
+      {:ok,
+       %{"type" => "tool_use_start", "toolName" => tool_name, "toolUseId" => tool_use_id} = msg} ->
         tool_input = msg["toolInput"] || %{}
         event = {:tool_use, tool_name, tool_input, tool_use_id, System.system_time(:millisecond)}
         state = push_scratchpad(state, event)
@@ -449,7 +448,7 @@ defmodule Hive.Agent do
 
   def handle_info(:typing_grace_expired, state) do
     state = stop_active_typing(state, preserve_channel: true)
-    {:noreply, %{state | typing_timer: nil, composing_since: nil}}
+    {:noreply, %{state | typing_timer: nil, composing_since: nil, steered: false}}
   end
 
   def handle_info(msg, state) do
@@ -513,22 +512,6 @@ defmodule Hive.Agent do
 
     {:noreply, state}
   end
-
-  # Catch-all for unexpected port messages
-  def handle_info({port, _}, %{sdk_port: port} = state) do
-    {:noreply, state}
-  end
-
-  def handle_info(:typing_grace_expired, state) do
-    state = stop_active_typing(state, preserve_channel: true)
-    {:noreply, %{state | typing_timer: nil, composing_since: nil, steered: false}}
-  end
-
-  def handle_info(msg, state) do
-    Logger.debug("Agent #{state.name} received unexpected message: #{inspect(msg)}")
-    {:noreply, state}
-  end
-
 
   # ---------------------------------------------------------------------------
   # Container lifecycle management (production mode)
@@ -674,7 +657,10 @@ defmodule Hive.Agent do
 
   defp container_exists?(container_name) do
     docker = docker_executable()
-    {_, code} = System.cmd(docker, ["container", "inspect", container_name], stderr_to_stdout: true)
+
+    {_, code} =
+      System.cmd(docker, ["container", "inspect", container_name], stderr_to_stdout: true)
+
     code == 0
   end
 
@@ -743,7 +729,11 @@ defmodule Hive.Agent do
     docker = docker_executable()
     tmp = Path.join(System.tmp_dir!(), "hive_ctx_#{state.name}.md")
     File.write!(tmp, build_dynamic_context(state.name))
-    System.cmd(docker, ["cp", tmp, "#{container_name}:/workspace/.hive/context.md"], stderr_to_stdout: true)
+
+    System.cmd(docker, ["cp", tmp, "#{container_name}:/workspace/.hive/context.md"],
+      stderr_to_stdout: true
+    )
+
     File.rm(tmp)
   end
 
@@ -1128,5 +1118,4 @@ defmodule Hive.Agent do
     port = Application.get_env(:hive, HiveWeb.Endpoint)[:http][:port] || 4000
     "http://localhost:#{port}"
   end
-
 end

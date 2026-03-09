@@ -779,5 +779,4 @@ defmodule Hive.IntegrationTest do
       refute agent in db_subs
     end
   end
-
 end
