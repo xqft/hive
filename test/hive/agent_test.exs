@@ -938,8 +938,8 @@ defmodule Hive.AgentTest do
         Jason.encode!(%{"type" => "thinking", "text" => "Let me consider..."})
       )
 
-      # Should receive PubSub broadcast
-      assert_receive {:scratchpad, ^name, {:thinking, "Let me consider...", _ts}}, 1_000
+      # Should receive PubSub broadcast (thinking uses :scratchpad_thinking for merging)
+      assert_receive {:scratchpad_thinking, ^name, {:thinking, "Let me consider...", _ts}}, 1_000
 
       # Should be in scratchpad
       scratchpad = Hive.Agent.scratchpad(name)
@@ -1191,8 +1191,9 @@ defmodule Hive.AgentTest do
       Process.sleep(20)
       scratchpad = Hive.Agent.scratchpad(name)
 
-      # Both events should be present (no clear because status was :thinking)
-      assert length(scratchpad) == 2
+      # Consecutive thinking chunks are merged into a single event
+      assert length(scratchpad) == 1
+      assert {:thinking, "thought A" <> "thought B", _ts} = hd(scratchpad)
 
       on_exit(fn -> Hive.Persistence.delete_agent(name) end)
     end

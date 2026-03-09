@@ -367,13 +367,22 @@ defmodule Hive.Agent do
             do: %{state | scratchpad: []},
             else: state
 
-        event = {:thinking, text, System.system_time(:millisecond)}
-        state = push_scratchpad(state, event)
+        # Merge consecutive thinking chunks into a single block
+        {state, event} =
+          case state.scratchpad do
+            [{:thinking, prev_text, ts} | rest] ->
+              merged = {:thinking, prev_text <> text, ts}
+              {%{state | scratchpad: [merged | rest]}, merged}
+
+            _ ->
+              event = {:thinking, text, System.system_time(:millisecond)}
+              {push_scratchpad(state, event), event}
+          end
 
         Phoenix.PubSub.broadcast(
           Hive.PubSub,
           "agent:scratchpad:#{state.name}",
-          {:scratchpad, state.name, event}
+          {:scratchpad_thinking, state.name, event}
         )
 
         {:noreply, state}
