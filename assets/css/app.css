@@ -377,6 +377,7 @@ select {
 }
 
 .ui-workspace__body {
+  flex: 1;
   min-width: 0;
   min-height: 0;
 }
@@ -502,7 +503,7 @@ select {
 }
 
 .ui-chat-screen {
-  height: calc(100vh - 4rem);
+  height: 100%;
   min-height: 0;
 }
 
