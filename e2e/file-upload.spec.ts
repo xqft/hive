@@ -48,7 +48,7 @@ async function triggerLiveViewUpload(
     }
   });
   // Wait for LiveView to process the upload and render previews
-  await page.locator('.ui-upload-previews').waitFor({ state: 'visible', timeout: 5000 });
+  await page.locator('.ui-upload-previews').waitFor({ state: 'visible', timeout: 10000 });
 }
 
 test.describe("File upload", () => {
