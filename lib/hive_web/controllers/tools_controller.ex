@@ -396,20 +396,14 @@ defmodule HiveWeb.ToolsController do
 
     case agent_active_channel(agent) do
       {"topic", active_topic} ->
-        cond do
-          is_nil(requested_topic) ->
-            {:ok, active_topic}
+        {:ok, requested_topic || active_topic}
 
-          requested_topic == active_topic ->
-            {:ok, active_topic}
-
-          true ->
-            {:error,
-             "Current reply context is topic #{active_topic}; send_message can only post there"}
+      {"dm", _dm_name} ->
+        if requested_topic do
+          {:ok, requested_topic}
+        else
+          {:error, "topic is required when the active context is a DM"}
         end
-
-      {"dm", dm_name} ->
-        {:error, "Current reply context is DM #{dm_name}; use send_dm for same-channel replies"}
 
       nil ->
         if requested_topic do
@@ -435,13 +429,8 @@ defmodule HiveWeb.ToolsController do
            "Current reply context is DM #{dm_name}; send_dm can only target #{expected_recipient}"}
         end
 
-      {"topic", active_topic} ->
-        if explicit_out_of_band_reason?(params) do
-          require_dm_recipient(requested_recipient)
-        else
-          {:error,
-           "Current reply context is topic #{active_topic}; reply there with send_message unless you intentionally need a DM and include a reason"}
-        end
+      {"topic", _active_topic} ->
+        require_dm_recipient(requested_recipient)
 
       nil ->
         require_dm_recipient(requested_recipient)
@@ -453,11 +442,6 @@ defmodule HiveWeb.ToolsController do
 
   defp require_dm_recipient(recipient), do: {:ok, recipient}
 
-  defp explicit_out_of_band_reason?(params) do
-    params["reason"]
-    |> blank_to_nil()
-    |> is_binary()
-  end
 
   defp agent_active_channel(agent) do
     overrides = Application.get_env(:hive, :agent_active_channel_overrides, %{})

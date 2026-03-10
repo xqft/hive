@@ -94,7 +94,7 @@ defmodule HiveWeb.AgentRoutingTest do
       assert Enum.any?(messages, &(&1.body == "in-thread reply"))
     end
 
-    test "send_message rejects cross-topic replies", %{conn: conn} do
+    test "send_message allows cross-topic posting", %{conn: conn} do
       active_topic = "routing-active-#{:erlang.unique_integer([:positive])}"
       other_topic = "routing-other-#{:erlang.unique_integer([:positive])}"
 
@@ -112,35 +112,19 @@ defmodule HiveWeb.AgentRoutingTest do
         conn
         |> tool_call("routing-agent", "send_message", %{
           "topic" => other_topic,
-          "text" => "wrong channel"
+          "text" => "cross-topic post"
         })
         |> json_response(200)
 
-      assert body["ok"] == false
-      assert body["error"] =~ "Current reply context is topic #{active_topic}"
+      assert body["ok"] == true
+      assert body["result"] =~ other_topic
+
+      messages = Hive.Topic.recent(other_topic, 10)
+      assert Enum.any?(messages, &(&1.body == "cross-topic post"))
     end
 
-    test "send_dm from a topic requires an explicit reason", %{conn: conn} do
+    test "send_dm from a topic context works without reason", %{conn: conn} do
       topic = "routing-topic-dm-#{:erlang.unique_integer([:positive])}"
-      create_topic(topic)
-      on_exit(fn -> cleanup_topic(topic) end)
-
-      put_hive_env(:agent_active_channel_overrides, %{"routing-agent" => {"topic", topic}})
-
-      body =
-        conn
-        |> tool_call("routing-agent", "send_dm", %{
-          "to" => "human",
-          "text" => "private follow-up"
-        })
-        |> json_response(200)
-
-      assert body["ok"] == false
-      assert body["error"] =~ "reply there with send_message"
-    end
-
-    test "send_dm allows explicit out-of-band follow-up from a topic", %{conn: conn} do
-      topic = "routing-topic-explicit-#{:erlang.unique_integer([:positive])}"
       dm_name = Hive.Topic.dm_channel_name("routing-agent", "human")
 
       create_topic(topic)
@@ -156,8 +140,7 @@ defmodule HiveWeb.AgentRoutingTest do
         conn
         |> tool_call("routing-agent", "send_dm", %{
           "to" => "human",
-          "text" => "private follow-up",
-          "reason" => "share credentials privately"
+          "text" => "private follow-up"
         })
         |> json_response(200)
 
