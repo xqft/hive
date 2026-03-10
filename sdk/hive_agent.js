@@ -150,7 +150,9 @@ async function processNext(batch) {
       } else if (event.type === "rate_limit_event") {
         extra = ` ${JSON.stringify(event)}`;
       }
-      process.stderr.write(`[hive-sdk] event: ${event.type} ${event.subtype || ""}${extra}\n`);
+      if (event.type !== "stream_event") {
+        process.stderr.write(`[hive-sdk] event: ${event.type} ${event.subtype || ""}${extra}\n`);
+      }
 
       // --- Stream event handling (intermediate events for scratchpad) ---
       if (event.type === "stream_event" && event.event) {
