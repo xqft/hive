@@ -98,6 +98,8 @@ async function processNext(batch) {
 
     const options = {
       model: "claude-opus-4-6",
+      permissionMode: "bypassPermissions",
+      allowDangerouslySkipPermissions: true,
       settings: { effortLevel: "max" },
       systemPrompt,
       includePartialMessages: true,
