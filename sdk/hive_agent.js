@@ -3,6 +3,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import * as readline from "readline";
 import * as fs from "fs";
 import { createBatcher } from "./message_batcher.js";
+import { createChannel } from "./message_channel.js";
 
 const agentName = process.argv[2];
 const mcpConfigPath = process.argv[3];
@@ -141,84 +142,103 @@ async function processNext(batch) {
       100
     );
 
-    for await (const event of query({ prompt: batch, options })) {
-      let extra = "";
-      if (event.type === "system") {
-        extra = ` mcp=${JSON.stringify(event.mcp_servers)} tools=${(event.tools||[]).filter(t=>t.startsWith("mcp")).join(",")}`;
-      } else if (event.type === "result") {
-        extra = ` is_error=${event.is_error} result=${JSON.stringify((event.result || "").slice(0, 500))}`;
-      } else if (event.type === "rate_limit_event") {
-        extra = ` ${JSON.stringify(event)}`;
-      }
-      if (event.type !== "stream_event") {
-        process.stderr.write(`[hive-sdk] event: ${event.type} ${event.subtype || ""}${extra}\n`);
-      }
+    const q = query({ prompt: batch, options });
 
-      // --- Stream event handling (intermediate events for scratchpad) ---
-      if (event.type === "stream_event" && event.event) {
-        const raw = event.event;
+    // Set up mid-turn message injection via streamInput
+    const channel = createChannel();
+    q.streamInput(channel);
+    batcher.setMidTurnHandler((text) => {
+      channel.push({
+        type: "user",
+        message: { role: "user", content: [{ type: "text", text }] },
+        parent_tool_use_id: null,
+        session_id: sessionId || "",
+      });
+    });
 
-        if (raw.type === "content_block_start" && raw.content_block?.type === "tool_use") {
-          currentToolName = raw.content_block.name || "";
-          currentToolUseId = raw.content_block.id || "";
-          currentToolInput = "";
-          // Don't emit yet — wait for content_block_stop to emit with full input
-        } else if (raw.type === "content_block_delta") {
-          if (raw.delta?.type === "thinking_delta") {
-            thinkingDebouncer.push(raw.delta.thinking || "");
-          } else if (raw.delta?.type === "text_delta") {
-            textDebouncer.push(raw.delta.text || "");
-          } else if (raw.delta?.type === "input_json_delta") {
-            currentToolInput += (raw.delta.partial_json || "");
-          }
-        } else if (raw.type === "content_block_stop") {
-          // Flush any pending text/thinking
-          thinkingDebouncer.flush();
-          textDebouncer.flush();
-          // Emit tool_use_start with accumulated input (or empty if no input was streamed)
-          if (currentToolUseId) {
-            let parsedInput = {};
-            if (currentToolInput) {
-              try { parsedInput = JSON.parse(currentToolInput); } catch (_) {}
-            }
-            emit({ type: "tool_use_start", toolName: currentToolName, toolInput: parsedInput, toolUseId: currentToolUseId });
-          }
-          currentToolInput = "";
-          currentToolName = "";
-          currentToolUseId = "";
+    try {
+      for await (const event of q) {
+        let extra = "";
+        if (event.type === "system") {
+          extra = ` mcp=${JSON.stringify(event.mcp_servers)} tools=${(event.tools||[]).filter(t=>t.startsWith("mcp")).join(",")}`;
+        } else if (event.type === "result") {
+          extra = ` is_error=${event.is_error} result=${JSON.stringify((event.result || "").slice(0, 500))}`;
+        } else if (event.type === "rate_limit_event") {
+          extra = ` ${JSON.stringify(event)}`;
         }
-      }
+        if (event.type !== "stream_event") {
+          process.stderr.write(`[hive-sdk] event: ${event.type} ${event.subtype || ""}${extra}\n`);
+        }
 
-      // --- tool_result events from SDK ---
-      if (event.type === "tool_result") {
-        const output = event.output || event.content || "";
-        emit({ type: "tool_result", toolUseId: event.toolUseId || event.tool_use_id || "", output: typeof output === "string" ? output : JSON.stringify(output) });
-      }
+        // --- Stream event handling (intermediate events for scratchpad) ---
+        if (event.type === "stream_event" && event.event) {
+          const raw = event.event;
 
-      // --- Existing session / result handling ---
-      const nextSessionId = event.sessionId || event.session_id;
+          if (raw.type === "content_block_start" && raw.content_block?.type === "tool_use") {
+            currentToolName = raw.content_block.name || "";
+            currentToolUseId = raw.content_block.id || "";
+            currentToolInput = "";
+            // Don't emit yet — wait for content_block_stop to emit with full input
+          } else if (raw.type === "content_block_delta") {
+            if (raw.delta?.type === "thinking_delta") {
+              thinkingDebouncer.push(raw.delta.thinking || "");
+            } else if (raw.delta?.type === "text_delta") {
+              textDebouncer.push(raw.delta.text || "");
+            } else if (raw.delta?.type === "input_json_delta") {
+              currentToolInput += (raw.delta.partial_json || "");
+            }
+          } else if (raw.type === "content_block_stop") {
+            // Flush any pending text/thinking
+            thinkingDebouncer.flush();
+            textDebouncer.flush();
+            // Emit tool_use_start with accumulated input (or empty if no input was streamed)
+            if (currentToolUseId) {
+              let parsedInput = {};
+              if (currentToolInput) {
+                try { parsedInput = JSON.parse(currentToolInput); } catch (_) {}
+              }
+              emit({ type: "tool_use_start", toolName: currentToolName, toolInput: parsedInput, toolUseId: currentToolUseId });
+            }
+            currentToolInput = "";
+            currentToolName = "";
+            currentToolUseId = "";
+          }
+        }
 
-      if (nextSessionId && nextSessionId !== sessionId) {
-        sessionId = nextSessionId;
-        process.stderr.write(
-          `[hive-sdk] session updated agent=${agentName} session=${sessionId}\n`
-        );
-        process.stdout.write(
-          JSON.stringify({ type: "session", sessionId }) + "\n"
-        );
-      }
+        // --- tool_result events from SDK ---
+        if (event.type === "tool_result") {
+          const output = event.output || event.content || "";
+          emit({ type: "tool_result", toolUseId: event.toolUseId || event.tool_use_id || "", output: typeof output === "string" ? output : JSON.stringify(output) });
+        }
 
-      if (event.type === "result") {
-        // Flush any remaining debounced content at end of turn
-        thinkingDebouncer.flush();
-        textDebouncer.flush();
+        // --- Existing session / result handling ---
+        const nextSessionId = event.sessionId || event.session_id;
 
-        if (event.is_error) {
+        if (nextSessionId && nextSessionId !== sessionId) {
+          sessionId = nextSessionId;
+          process.stderr.write(
+            `[hive-sdk] session updated agent=${agentName} session=${sessionId}\n`
+          );
           process.stdout.write(
-            JSON.stringify({ type: "error", message: event.result || "unknown SDK error" }) + "\n"
+            JSON.stringify({ type: "session", sessionId }) + "\n"
           );
         }
+
+        if (event.type === "result") {
+          // Flush any remaining debounced content at end of turn
+          thinkingDebouncer.flush();
+          textDebouncer.flush();
+
+          if (event.is_error) {
+            process.stdout.write(
+              JSON.stringify({ type: "error", message: event.result || "unknown SDK error" }) + "\n"
+            );
+          }
+        }
       }
+    } finally {
+      batcher.clearMidTurnHandler();
+      channel.close();
     }
   } catch (err) {
     process.stdout.write(

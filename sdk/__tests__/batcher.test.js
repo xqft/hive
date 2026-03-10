@@ -142,4 +142,94 @@ describe("message_batcher", () => {
     assert.ok(calls.includes("hello"), "should have received the batch");
     assert.ok(calls.includes(null), "should have received idle signal");
   });
+
+  it("mid-turn handler — messages during processing go to handler, not queue", async () => {
+    const batches = [];
+    const midTurnMessages = [];
+    let resolveProcessing;
+
+    const batcher = createBatcher((batch) => {
+      if (batch === null) return;
+      batches.push(batch);
+      return new Promise((resolve) => { resolveProcessing = resolve; });
+    });
+
+    // Start processing first message
+    batcher.pushLine("first");
+    await settle();
+    assert.equal(batches.length, 1);
+    assert.equal(batches[0], "first");
+
+    // Set mid-turn handler while processing
+    batcher.setMidTurnHandler((msg) => midTurnMessages.push(msg));
+
+    // Push messages while processing — should go to mid-turn handler
+    batcher.pushLine("mid-turn-1");
+    batcher.pushLine("mid-turn-2");
+    await settle();
+
+    assert.equal(midTurnMessages.length, 1, "mid-turn handler should receive one batched message");
+    assert.equal(midTurnMessages[0], "mid-turn-1\nmid-turn-2");
+    assert.equal(batches.length, 1, "no new batches should be created");
+
+    // Complete processing
+    resolveProcessing();
+    await settle();
+  });
+
+  it("mid-turn handler cleared — messages queue normally again", async () => {
+    const batches = [];
+    const midTurnMessages = [];
+    const resolvers = [];
+
+    const batcher = createBatcher((batch) => {
+      if (batch === null) return;
+      batches.push(batch);
+      return new Promise((resolve) => { resolvers.push(resolve); });
+    });
+
+    // Start processing
+    batcher.pushLine("first");
+    await settle();
+    assert.equal(batches.length, 1);
+
+    // Set then clear mid-turn handler
+    batcher.setMidTurnHandler((msg) => midTurnMessages.push(msg));
+    batcher.clearMidTurnHandler();
+
+    // Push while processing — should queue for next batch (no handler)
+    batcher.pushLine("queued");
+    await settle();
+    assert.equal(midTurnMessages.length, 0, "cleared handler should not receive messages");
+
+    // Complete first batch — queued message should flush as next batch
+    resolvers[0]();
+    await settle();
+    assert.equal(batches.length, 2);
+    assert.equal(batches[1], "queued");
+
+    resolvers[1]();
+    await settle();
+  });
+
+  it("mid-turn handler — only active during processing", async () => {
+    const batches = [];
+    const midTurnMessages = [];
+
+    const batcher = createBatcher((batch) => {
+      if (batch === null) return;
+      batches.push(batch);
+    });
+
+    // Set handler before any processing
+    batcher.setMidTurnHandler((msg) => midTurnMessages.push(msg));
+
+    // Push when not processing — should go through normal batch flow
+    batcher.pushLine("normal");
+    await settle(5);
+
+    assert.equal(batches.length, 1, "should process normally when not in processing state");
+    assert.equal(batches[0], "normal");
+    assert.equal(midTurnMessages.length, 0, "handler should not be called when not processing");
+  });
 });

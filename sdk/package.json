@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --test __tests__/batcher.test.js"
+    "test": "node --test __tests__/batcher.test.js __tests__/channel.test.js"
   },
   "keywords": [],
   "author": "",

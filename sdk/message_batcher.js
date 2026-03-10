@@ -6,14 +6,21 @@ export function createBatcher(onBatch) {
   let pending = [];
   let processing = false;
   let flushScheduled = false;
+  let midTurnHandler = null;
 
   function pushLine(line) {
     pending.push(line);
-    if (!processing && !flushScheduled) {
+    if (!flushScheduled) {
       flushScheduled = true;
       setImmediate(() => {
         flushScheduled = false;
-        if (!processing && pending.length > 0) flush();
+        if (processing && midTurnHandler) {
+          // Mid-turn: route to streamInput instead of queueing
+          const msg = pending.splice(0, pending.length).join("\n");
+          midTurnHandler(msg);
+        } else if (!processing && pending.length > 0) {
+          flush();
+        }
       });
     }
   }
@@ -36,5 +43,10 @@ export function createBatcher(onBatch) {
     });
   }
 
-  return { pushLine, isProcessing: () => processing };
+  return {
+    pushLine,
+    isProcessing: () => processing,
+    setMidTurnHandler(fn) { midTurnHandler = fn; },
+    clearMidTurnHandler() { midTurnHandler = null; },
+  };
 }
