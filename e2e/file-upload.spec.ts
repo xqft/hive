@@ -28,10 +28,9 @@ function cleanupTempFile(filePath: string): void {
 }
 
 /**
- * Set files on the LiveView upload input and trigger the LV upload hook.
- * Playwright's setInputFiles() alone doesn't fire LiveView's internal
- * file tracking — we need to re-dispatch a change event so the
- * Phoenix.LiveFileUpload hook calls trackFiles().
+ * Set files on the LiveView upload input and wait for previews to render.
+ * With phx-change="validate" on the form, Playwright's setInputFiles()
+ * triggers LiveView's upload hook automatically — no manual event dispatch needed.
  */
 async function triggerLiveViewUpload(
   page: Page,
@@ -39,16 +38,8 @@ async function triggerLiveViewUpload(
 ): Promise<void> {
   const fileInput = page.locator("input[data-phx-upload-ref]");
   await fileInput.setInputFiles(files);
-  await page.evaluate(() => {
-    const input = document.querySelector(
-      'input[data-phx-upload-ref]',
-    ) as HTMLInputElement;
-    if (input) {
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-    }
-  });
-  // Give LiveView time to process the upload tracking
-  await page.waitForTimeout(500);
+  // Wait for LiveView to process and render upload previews
+  await page.waitForSelector(".ui-upload-previews");
 }
 
 test.describe("File upload", () => {
@@ -124,9 +115,10 @@ test.describe("File upload", () => {
       const previews = page.locator(".ui-upload-previews");
       await expect(previews).toBeVisible();
 
-      // Click remove button
+      // Click remove button via evaluate to bypass form intercepting the click
+      // (the button's position: absolute; top: -6px extends outside its parent)
       const removeBtn = page.locator(".ui-upload-preview__remove");
-      await removeBtn.click();
+      await removeBtn.evaluate((btn: HTMLElement) => btn.click());
 
       // Previews should be gone
       await expect(
