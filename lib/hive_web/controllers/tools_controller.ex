@@ -18,6 +18,7 @@ defmodule HiveWeb.ToolsController do
     create_agent delete_agent
     write_skill read_skill delete_skill write_claude_md
     upload_media view_image
+    tmux_send tmux_read
   )
 
   def call_tool(conn, %{"agent" => agent, "tool" => tool, "params" => params}) do
@@ -318,12 +319,70 @@ defmodule HiveWeb.ToolsController do
     end
   end
 
+  defp execute_tool(agent, "tmux_send", params) do
+    container_name = "hive-agent-#{agent}"
+    docker = docker_executable()
+    text = params["text"]
+    keys = params["keys"]
+    wait_ms = params["wait_ms"] || 0
+
+    # Send literal text if provided
+    if text do
+      System.cmd(docker, [
+        "exec", container_name, "tmux", "send-keys", "-t", "shell", "-l", text
+      ], stderr_to_stdout: true)
+    end
+
+    # Send special keys if provided
+    if keys do
+      System.cmd(docker, [
+        "exec", container_name, "tmux", "send-keys", "-t", "shell", keys
+      ], stderr_to_stdout: true)
+    end
+
+    if wait_ms > 0 do
+      wait_ms = min(wait_ms, 30_000)
+      Process.sleep(wait_ms)
+      capture_tmux_pane(container_name, docker)
+    else
+      {:ok, "sent"}
+    end
+  end
+
+  defp execute_tool(agent, "tmux_read", params) do
+    container_name = "hive-agent-#{agent}"
+    docker = docker_executable()
+    wait = min(params["wait"] || 1000, 30_000)
+
+    if wait > 0, do: Process.sleep(wait)
+    capture_tmux_pane(container_name, docker)
+  end
+
   defp execute_tool(_agent, tool, _params) do
     {:error, "Unknown tool: #{tool}"}
   end
 
   defdelegate sender_kind(sender), to: Hive.Util
   defdelegate format_history_timestamp(ts), to: Hive.Util, as: :format_timestamp
+
+  defp capture_tmux_pane(container_name, docker) do
+    case System.cmd(docker, [
+      "exec", container_name, "tmux", "capture-pane", "-p", "-S", "-200", "-t", "shell"
+    ], stderr_to_stdout: true) do
+      {output, 0} ->
+        # Strip trailing blank lines, truncate to 50KB
+        content = output |> String.trim_trailing() |> String.slice(0, 50_000)
+        {:ok, content}
+      {error, _} ->
+        {:error, "Failed to read terminal: #{String.trim(error)}"}
+    end
+  end
+
+  defp docker_executable do
+    Application.get_env(:hive, :container_docker_executable) ||
+      System.find_executable("docker") ||
+      "docker"
+  end
 
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)

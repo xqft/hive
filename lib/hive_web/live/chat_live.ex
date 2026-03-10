@@ -57,10 +57,7 @@ defmodule HiveWeb.ChatLive do
       |> assign(:form_reset, 0)
       |> assign(:typing_agents, [])
       |> assign(:aside_open, false)
-      |> assign(:aside_tab, "members")
       |> assign(:mobile_topics_open, false)
-      |> assign(:scratchpad_agent, nil)
-      |> assign(:scratchpad_events, [])
       |> allow_upload(:media,
         accept: ~w(.jpg .jpeg .png .gif .webp),
         max_entries: 4,
@@ -112,26 +109,10 @@ defmodule HiveWeb.ChatLive do
                   <button
                     type="button"
                     phx-click="toggle_aside"
-                    phx-value-tab="members"
-                    class={[
-                      "ui-chat-meta ui-chat-meta--btn",
-                      @aside_open && @aside_tab == "members" && "is-active"
-                    ]}
+                    class={["ui-chat-meta ui-chat-meta--btn", @aside_open && "is-active"]}
                   >
-                    <.icon name="hero-user-group" class="size-4" />
-                    <span>{length(@members)} members</span>
-                  </button>
-                  <button
-                    type="button"
-                    phx-click="toggle_aside"
-                    phx-value-tab="activity"
-                    class={[
-                      "ui-chat-meta ui-chat-meta--btn",
-                      @aside_open && @aside_tab == "activity" && "is-active"
-                    ]}
-                  >
-                    <.icon name="hero-eye" class="size-4" />
-                    <span>Activity</span>
+                    <.icon name="hero-users" class="size-4" />
+                    <span>Members</span>
                   </button>
                 </div>
               </div>
@@ -251,24 +232,7 @@ defmodule HiveWeb.ChatLive do
 
             <aside :if={@aside_open} class="ui-chat-aside ui-surface">
               <div class="ui-chat-aside__header">
-                <div class="ui-chat-aside__tabs">
-                  <button
-                    type="button"
-                    phx-click="switch_aside_tab"
-                    phx-value-tab="members"
-                    class={["ui-chat-aside__tab", @aside_tab == "members" && "is-active"]}
-                  >
-                    Members
-                  </button>
-                  <button
-                    type="button"
-                    phx-click="switch_aside_tab"
-                    phx-value-tab="activity"
-                    class={["ui-chat-aside__tab", @aside_tab == "activity" && "is-active"]}
-                  >
-                    Activity
-                  </button>
-                </div>
+                <span class="ui-chat-aside__title">Members</span>
                 <button
                   type="button"
                   phx-click="close_aside"
@@ -279,7 +243,7 @@ defmodule HiveWeb.ChatLive do
                 </button>
               </div>
 
-              <div :if={@aside_tab == "members"} class="ui-stack">
+              <div class="ui-stack">
                 <div :if={@members == []} class="ui-empty">
                   No active members in this conversation.
                 </div>
@@ -295,11 +259,11 @@ defmodule HiveWeb.ChatLive do
                   <div class="flex items-center gap-2">
                     <.link
                       :if={member != "human"}
-                      navigate={~p"/agents/#{member}/terminal"}
+                      navigate={~p"/agent/#{member}"}
                       class="ui-pill cursor-pointer"
-                      title="Open terminal"
+                      title="View agent"
                     >
-                      <.icon name="hero-command-line" class="size-3.5" />
+                      <.icon name="hero-eye" class="size-3.5" />
                     </.link>
                     <span class="ui-pill" style={"color: #{status_color(@agent_statuses[member])}"}>
                       <span class="ui-dot"></span>
@@ -309,47 +273,6 @@ defmodule HiveWeb.ChatLive do
                 </div>
               </div>
 
-              <div :if={@aside_tab == "activity"} class="ui-stack" style="gap: 0;">
-                <!-- Agent selector: show member agents as clickable pills -->
-                <div
-                  class="flex flex-wrap gap-1.5 px-1 py-2"
-                  style="border-bottom: 1px solid var(--ui-border);"
-                >
-                  <button
-                    :for={member <- Enum.filter(@members, &(&1 != "human"))}
-                    type="button"
-                    phx-click="select_scratchpad_agent"
-                    phx-value-name={member}
-                    class={[
-                      "ui-pill cursor-pointer transition-colors",
-                      @scratchpad_agent == member && "bg-[var(--ui-accent)] text-white"
-                    ]}
-                  >
-                    {member}
-                  </button>
-                </div>
-                
-    <!-- Events timeline -->
-                <div
-                  :if={@scratchpad_agent}
-                  id="scratchpad-events"
-                  class="ui-stack overflow-y-auto"
-                  style="max-height: calc(100vh - 16rem); gap: 0;"
-                  phx-hook="ScrollBottom"
-                >
-                  <div :if={@scratchpad_events == []} class="ui-empty py-8">
-                    No activity yet for {@scratchpad_agent}
-                  </div>
-
-                  <%= for {event, idx} <- Enum.with_index(@scratchpad_events) do %>
-                    <.scratchpad_event event={event} idx={idx} />
-                  <% end %>
-                </div>
-
-                <div :if={is_nil(@scratchpad_agent)} class="ui-empty py-8">
-                  Select an agent to view activity
-                </div>
-              </div>
             </aside>
           </div>
         </div>
@@ -561,48 +484,12 @@ defmodule HiveWeb.ChatLive do
     {:noreply, socket}
   end
 
-  def handle_event("toggle_aside", %{"tab" => tab}, socket) do
-    if socket.assigns.aside_open && socket.assigns.aside_tab == tab do
-      {:noreply, assign(socket, aside_open: false)}
-    else
-      {:noreply, assign(socket, aside_open: true, aside_tab: tab)}
-    end
-  end
-
-  def handle_event("switch_aside_tab", %{"tab" => tab}, socket) do
-    {:noreply, assign(socket, aside_tab: tab)}
+  def handle_event("toggle_aside", _params, socket) do
+    {:noreply, assign(socket, aside_open: !socket.assigns.aside_open)}
   end
 
   def handle_event("close_aside", _params, socket) do
     {:noreply, assign(socket, aside_open: false)}
-  end
-
-  def handle_event("select_scratchpad_agent", %{"name" => name}, socket) do
-    # Unsubscribe from old agent's scratchpad
-    if socket.assigns.scratchpad_agent do
-      Phoenix.PubSub.unsubscribe(
-        Hive.PubSub,
-        "agent:scratchpad:#{socket.assigns.scratchpad_agent}"
-      )
-    end
-
-    # Subscribe to new agent's scratchpad
-    if connected?(socket) do
-      Phoenix.PubSub.subscribe(Hive.PubSub, "agent:scratchpad:#{name}")
-    end
-
-    # Load existing scratchpad events (reversed since they're stored most-recent-first)
-    events =
-      try do
-        name |> Hive.Agent.scratchpad() |> Enum.reverse()
-      catch
-        _, _ -> []
-      end
-
-    {:noreply,
-     socket
-     |> assign(:scratchpad_agent, name)
-     |> assign(:scratchpad_events, events)}
   end
 
   # ---------------------------------------------------------------------------
@@ -708,46 +595,6 @@ defmodule HiveWeb.ChatLive do
     agents = load_agents()
     agent_statuses = build_agent_statuses(agents)
     {:noreply, assign(socket, agents: agents, agent_statuses: agent_statuses)}
-  end
-
-  # Thinking chunks — merge with the last thinking event instead of appending
-  def handle_info({:scratchpad_thinking, _agent_name, merged_event}, socket) do
-    events = socket.assigns.scratchpad_events
-
-    events =
-      case List.last(events) do
-        {:thinking, _, _} ->
-          List.replace_at(events, length(events) - 1, merged_event)
-
-        _ ->
-          events ++ [merged_event]
-      end
-
-    {:noreply, assign(socket, :scratchpad_events, events)}
-  end
-
-  # Text chunks — merge with the last text event instead of appending
-  def handle_info({:scratchpad_text, _agent_name, merged_event}, socket) do
-    events = socket.assigns.scratchpad_events
-
-    events =
-      case List.last(events) do
-        {:text, _, _} ->
-          List.replace_at(events, length(events) - 1, merged_event)
-
-        _ ->
-          events ++ [merged_event]
-      end
-
-    {:noreply, assign(socket, :scratchpad_events, events)}
-  end
-
-  # Scratchpad events from agent activity
-  def handle_info({:scratchpad, _agent_name, event}, socket) do
-    events = socket.assigns.scratchpad_events ++ [event]
-    # Keep last 100 to match agent-side buffer
-    events = if length(events) > 100, do: Enum.drop(events, length(events) - 100), else: events
-    {:noreply, assign(socket, :scratchpad_events, events)}
   end
 
   # Catch-all for unhandled PubSub messages
@@ -893,79 +740,6 @@ defmodule HiveWeb.ChatLive do
   # ---------------------------------------------------------------------------
   # Helper functions
   # ---------------------------------------------------------------------------
-
-  defp scratchpad_event(%{event: {:thinking, _text, _ts}} = assigns) do
-    ~H"""
-    <details class="scratchpad-entry scratchpad-thinking">
-      <summary class="scratchpad-summary">
-        <span class="scratchpad-icon" style="color: var(--ui-text-soft);">
-          <.icon name="hero-light-bulb" class="size-3.5" />
-        </span>
-        <span class="scratchpad-label">Thinking</span>
-      </summary>
-      <pre class="scratchpad-body">{elem(@event, 1)}</pre>
-    </details>
-    """
-  end
-
-  defp scratchpad_event(%{event: {:text, _text, _ts}} = assigns) do
-    ~H"""
-    <details class="scratchpad-entry scratchpad-text">
-      <summary class="scratchpad-summary">
-        <span class="scratchpad-icon" style="color: var(--ui-accent);">
-          <.icon name="hero-chat-bubble-bottom-center-text" class="size-3.5" />
-        </span>
-        <span class="scratchpad-label">Responded</span>
-      </summary>
-      <pre class="scratchpad-body">{elem(@event, 1)}</pre>
-    </details>
-    """
-  end
-
-  defp scratchpad_event(%{event: {:tool_use, _tool_name, _tool_input, _id, _ts}} = assigns) do
-    ~H"""
-    <details class="scratchpad-entry scratchpad-tool">
-      <summary class="scratchpad-summary">
-        <span class="scratchpad-icon" style="color: var(--ui-warning);">
-          <.icon name="hero-wrench-screwdriver" class="size-3.5" />
-        </span>
-        <span class="scratchpad-label">{elem(@event, 1)}</span>
-      </summary>
-      <pre class="scratchpad-body">{format_tool_input(elem(@event, 2))}</pre>
-    </details>
-    """
-  end
-
-  defp scratchpad_event(%{event: {:tool_result, _id, _output, _ts}} = assigns) do
-    ~H"""
-    <details class="scratchpad-entry scratchpad-result">
-      <summary class="scratchpad-summary">
-        <span class="scratchpad-icon" style="color: var(--ui-success);">
-          <.icon name="hero-check-circle" class="size-3.5" />
-        </span>
-        <span class="scratchpad-label">Result</span>
-      </summary>
-      <pre class="scratchpad-body">{truncate_output(elem(@event, 2))}</pre>
-    </details>
-    """
-  end
-
-  # Catch-all for unknown event types
-  defp scratchpad_event(assigns), do: ~H""
-
-  defp format_tool_input(input) when is_map(input), do: Jason.encode!(input, pretty: true)
-  defp format_tool_input(input) when is_binary(input), do: input
-  defp format_tool_input(input), do: inspect(input)
-
-  defp truncate_output(output) when is_binary(output) do
-    if String.length(output) > 2000 do
-      String.slice(output, 0, 2000) <> "\n... (truncated)"
-    else
-      output
-    end
-  end
-
-  defp truncate_output(output), do: inspect(output)
 
   defp load_topics do
     case Hive.Persistence.get_topics() do

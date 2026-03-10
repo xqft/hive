@@ -57,7 +57,7 @@ defmodule HiveWeb.DashboardLive do
               <div :for={agent <- @agents} class="ui-card ui-stack">
                 <div class="ui-section-row">
                   <div>
-                    <p class="font-semibold text-[var(--ui-text-strong)]">{agent.name}</p>
+                    <.link navigate={~p"/agent/#{agent.name}"} class="font-semibold text-[var(--ui-text-strong)] hover:text-[var(--ui-accent)]">{agent.name}</.link>
                     <p class="ui-helper-text line-clamp-2">{agent.description}</p>
                   </div>
                   <.status_badge status={Map.get(@statuses, agent.name, :unknown)} />

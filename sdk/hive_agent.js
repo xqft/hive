@@ -68,7 +68,8 @@ async function processNext(batch) {
       "mcp__hive__create_agent", "mcp__hive__delete_agent",
       "mcp__hive__write_skill", "mcp__hive__read_skill", "mcp__hive__delete_skill",
       "mcp__hive__write_claude_md",
-      "mcp__hive__upload_media", "mcp__hive__view_image"
+      "mcp__hive__upload_media", "mcp__hive__view_image",
+      "mcp__hive__tmux_send", "mcp__hive__tmux_read"
     ];
 
     const extraToolPatterns = [];
@@ -105,7 +106,7 @@ async function processNext(batch) {
       systemPrompt,
       includePartialMessages: true,
       allowedTools: [
-        "Bash", "Read", "Write", "Edit", "Glob", "Grep",
+        "Read", "Write", "Edit", "Glob", "Grep",
         "Skill", "WebFetch", "WebSearch",
         ...hiveTools, ...extraToolPatterns
       ],

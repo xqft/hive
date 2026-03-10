@@ -8,6 +8,7 @@ fi
 
 # Background tmux session for user shell access
 tmux new-session -d -s shell -x 200 -y 50 2>/dev/null || true
+tmux set-option -g history-limit 10000
 
 # SDK as foreground process (stdin/stdout connected to Hive via docker -i)
 cd /workspace

@@ -886,11 +886,18 @@ defmodule Hive.Agent do
 
     ### Environment
     You run inside a persistent Docker container with your own workspace at /workspace.
-    Your workspace persists across restarts. You have full shell access via the SDK's
-    built-in tools (Bash, Read, Write, Edit, Grep, Glob, etc.).
+    Your workspace persists across restarts.
 
-    For coding tasks, use your built-in tools directly — no need to spawn separate
-    containers. Your workspace has git, python3, node, and common dev tools pre-installed.
+    ### Terminal
+    You have a persistent terminal session in your container. Use tmux_send to type
+    commands and press keys, and tmux_read to see the terminal output. Your terminal
+    is visible to observers. Examples:
+    - Run a command: tmux_send(text: "npm test", keys: "Enter", wait_ms: 3000)
+    - Confirm a prompt: tmux_send(text: "y", keys: "Enter", wait_ms: 1000)
+    - Cancel: tmux_send(keys: "C-c")
+    - Check output: tmux_read(wait: 500)
+    For file operations, prefer built-in tools (Read, Write, Edit, Grep, Glob).
+    Your workspace has git, python3, node, and common dev tools pre-installed.
     Changes you make to files, installed packages, and cloned repos all persist.
 
     ### Self-Modification
@@ -927,7 +934,6 @@ defmodule Hive.Agent do
     Jason.encode!(%{
       "permissions" => %{
         "allow" => [
-          "Bash",
           "Read",
           "Write",
           "Edit",

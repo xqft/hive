@@ -81,6 +81,16 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {
       url: { type: "string", description: "Image URL (e.g. /uploads/abc.png)" }
     }, required: ["url"] }},
+  { name: "tmux_send", description: "Send text and/or keys to the workspace terminal. Set wait_ms > 0 to wait and return terminal output in one call. Use this instead of Bash for running commands.",
+    inputSchema: { type: "object", properties: {
+      text: { type: "string", description: "Text to type (literal characters)" },
+      keys: { type: "string", description: "Special key: Enter, C-c, C-d, Up, Down, Tab, Escape, etc." },
+      wait_ms: { type: "number", description: "Ms to wait then return screen content (0 = fire-and-forget, default 0)" }
+    }}},
+  { name: "tmux_read", description: "Read the current terminal screen content without sending input. Useful to check on long-running commands or see current state.",
+    inputSchema: { type: "object", properties: {
+      wait: { type: "number", description: "Ms to wait before reading (default 1000, max 30000)" }
+    }}},
 ];
 
 const server = new Server({ name: "hive", version: "1.0.0" }, {

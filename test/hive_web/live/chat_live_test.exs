@@ -81,7 +81,7 @@ defmodule HiveWeb.ChatLiveTest do
 
     test "shows members badge", %{conn: conn} do
       {:ok, _view, html} = live(conn, "/")
-      assert html =~ "members"
+      assert html =~ "Members"
     end
 
     test "shows navigation links", %{conn: conn} do
