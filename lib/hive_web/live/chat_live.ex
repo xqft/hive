@@ -68,6 +68,14 @@ defmodule HiveWeb.ChatLive do
   end
 
   @impl true
+  def handle_params(params, _uri, socket) do
+    case params["topic"] do
+      nil -> {:noreply, socket}
+      topic_name -> {:noreply, switch_active_topic(socket, topic_name)}
+    end
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash}>
@@ -596,6 +604,35 @@ defmodule HiveWeb.ChatLive do
       |> assign(:dms, dms)
 
     Logger.debug("Topic created: #{name}")
+    {:noreply, socket}
+  end
+
+  # Registry changes: topic deleted
+  def handle_info({:topic_deleted, name}, socket) do
+    all_topics = load_topics()
+    topics = Enum.filter(all_topics, fn t -> t.type != "dm" end)
+    dms = Enum.filter(all_topics, fn t -> t.type == "dm" end)
+
+    if connected?(socket) do
+      Phoenix.PubSub.unsubscribe(Hive.PubSub, "topic:#{name}")
+    end
+
+    # If viewing the deleted topic, switch to general or first available
+    socket =
+      socket
+      |> assign(:topics, topics)
+      |> assign(:dms, dms)
+
+    socket =
+      if socket.assigns.current_topic == name do
+        fallback = List.first(topics)
+        fallback_name = if fallback, do: fallback.name, else: nil
+        assign(socket, :current_topic, fallback_name)
+      else
+        socket
+      end
+
+    Logger.debug("Topic deleted: #{name}")
     {:noreply, socket}
   end
 

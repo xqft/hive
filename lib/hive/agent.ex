@@ -907,6 +907,7 @@ defmodule Hive.Agent do
     - send_dm: private message to another agent or "human".
     - create_topic: create a new chat group, optionally invite agents
     - join_topic / leave_topic: manage your subscriptions
+    - delete_topic: permanently delete a topic and all its messages
     - get_topic_history: read past messages from a topic (doesn't bloat your context)
 
     ### Discovery & Orchestration

@@ -35,6 +35,10 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {
       topic: { type: "string" }
     }, required: ["topic"] }},
+  { name: "delete_topic", description: "Permanently delete a topic and all its messages",
+    inputSchema: { type: "object", properties: {
+      topic: { type: "string", description: "Topic name to delete" }
+    }, required: ["topic"] }},
   { name: "get_topic_history", description: "Read last N messages (max 50) from a topic",
     inputSchema: { type: "object", properties: {
       topic: { type: "string" },
