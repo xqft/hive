@@ -568,8 +568,15 @@ defmodule Hive.Agent do
     # Check if container exists (from previous run)
     case container_exists?(container_name) do
       true ->
-        # Wake: docker start -ia
-        wake_container(state, container_name)
+        if container_image_stale?(container_name) do
+          # Image updated since container was created — recreate (volume preserved)
+          Logger.info("Agent #{state.name} container image is stale, recreating")
+          remove_container(container_name)
+          create_container(state, container_name, volume_name)
+        else
+          # Wake: docker start -ia
+          wake_container(state, container_name)
+        end
 
       false ->
         # First start: docker run -i
@@ -725,6 +732,32 @@ defmodule Hive.Agent do
       System.cmd(docker, ["container", "inspect", container_name], stderr_to_stdout: true)
 
     code == 0
+  end
+
+  defp container_image_stale?(container_name) do
+    docker = docker_executable()
+    image = Application.get_env(:hive, :container_image_name, "hive-claude-code:latest")
+
+    # Get the image ID the container was created with
+    {container_image, 0} =
+      System.cmd(docker, ["inspect", "--format", "{{.Image}}", container_name],
+        stderr_to_stdout: true
+      )
+
+    # Get the current image ID for the tag
+    {current_image, 0} =
+      System.cmd(docker, ["image", "inspect", "--format", "{{.Id}}", image],
+        stderr_to_stdout: true
+      )
+
+    String.trim(container_image) != String.trim(current_image)
+  rescue
+    _ -> false
+  end
+
+  defp remove_container(container_name) do
+    docker = docker_executable()
+    System.cmd(docker, ["rm", "-f", container_name], stderr_to_stdout: true)
   end
 
   defp init_or_sync_volume(state, volume_name) do
