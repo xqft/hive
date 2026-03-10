@@ -591,9 +591,14 @@ defmodule Hive.Agent do
           "/workspace/.hive/context.md"
         ]
 
+    agent_dir = agent_dir(state.name)
+    File.mkdir_p!(agent_dir)
+    stderr_log = Path.join(agent_dir, "sdk_stderr.log")
+    shell_cmd = Enum.join([docker | args], " ") <> " 2>>#{stderr_log}"
+
     Port.open(
-      {:spawn_executable, String.to_charlist(docker)},
-      [:binary, :exit_status, args: args, line: 65_536]
+      {:spawn_executable, ~c"/bin/sh"},
+      [:binary, :exit_status, args: ["-c", shell_cmd], line: 65_536]
     )
   end
 
@@ -610,9 +615,14 @@ defmodule Hive.Agent do
     # Update context before waking
     update_container_context(state, container_name)
 
+    agent_dir = agent_dir(state.name)
+    File.mkdir_p!(agent_dir)
+    stderr_log = Path.join(agent_dir, "sdk_stderr.log")
+    shell_cmd = "#{docker} start -ia #{container_name} 2>>#{stderr_log}"
+
     Port.open(
-      {:spawn_executable, String.to_charlist(docker)},
-      [:binary, :exit_status, args: ["start", "-ia", container_name], line: 65_536]
+      {:spawn_executable, ~c"/bin/sh"},
+      [:binary, :exit_status, args: ["-c", shell_cmd], line: 65_536]
     )
   end
 

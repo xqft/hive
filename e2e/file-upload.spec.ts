@@ -47,8 +47,8 @@ async function triggerLiveViewUpload(
       input.dispatchEvent(new Event("change", { bubbles: true }));
     }
   });
-  // Give LiveView time to process the upload tracking
-  await page.waitForTimeout(500);
+  // Wait for LiveView to process the upload and render previews
+  await page.locator('.ui-upload-previews').waitFor({ state: 'visible', timeout: 5000 });
 }
 
 test.describe("File upload", () => {
@@ -60,7 +60,8 @@ test.describe("File upload", () => {
     const topicItem = page.locator(".ui-topic-item").first();
     if (await topicItem.isVisible({ timeout: 2000 }).catch(() => false)) {
       await topicItem.click();
-      await page.waitForTimeout(500);
+      // Wait for topic selection to take effect (composer becomes active)
+      await page.locator('.ui-chat-composer').waitFor({ state: 'visible', timeout: 5000 });
     }
   });
 
