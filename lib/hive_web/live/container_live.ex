@@ -6,6 +6,10 @@ defmodule HiveWeb.ContainerLive do
     container_name = "hive-agent-#{agent_name}"
     status = check_container_status(container_name)
 
+    if connected?(socket) do
+      :timer.send_interval(10_000, self(), :check_status)
+    end
+
     {:ok,
      assign(socket,
        page_title: "Terminal: #{agent_name}",
@@ -68,7 +72,16 @@ defmodule HiveWeb.ContainerLive do
   end
 
   def handle_info(:terminal_closed, socket) do
-    {:noreply, socket}
+    {:noreply, assign(socket, relay: nil, status: :stopped)}
+  end
+
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, socket) do
+    {:noreply, assign(socket, relay: nil, status: :stopped)}
+  end
+
+  def handle_info(:check_status, socket) do
+    status = check_container_status(socket.assigns.container_name)
+    {:noreply, assign(socket, :status, status)}
   end
 
   def handle_info(_msg, socket) do
@@ -109,8 +122,12 @@ defmodule HiveWeb.ContainerLive do
            rows: rows,
            session: "shell"
          ) do
-      {:ok, pid} -> pid
-      {:error, _} -> nil
+      {:ok, pid} ->
+        Process.monitor(pid)
+        pid
+
+      {:error, _} ->
+        nil
     end
   end
 

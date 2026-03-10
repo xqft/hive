@@ -180,17 +180,21 @@ defmodule Hive.TopicTest do
 
   describe "@mention detection" do
     test "mentioning a non-subscriber auto-invites them" do
+      bob = "mention-bob-#{System.unique_integer([:positive])}"
+      Hive.Persistence.create_agent(bob, "d", "p")
+      on_exit(fn -> Hive.Persistence.delete_agent(bob) end)
+
       start_topic("mentions")
       Topic.join("mentions", "alice")
 
       # bob is not subscribed
-      refute MapSet.member?(Topic.subscribers("mentions"), "bob")
+      refute MapSet.member?(Topic.subscribers("mentions"), bob)
 
       # alice mentions bob
-      Topic.post("mentions", "alice", "hey @bob check this out")
+      Topic.post("mentions", "alice", "hey @#{bob} check this out")
 
       # bob should now be a subscriber
-      assert MapSet.member?(Topic.subscribers("mentions"), "bob")
+      assert MapSet.member?(Topic.subscribers("mentions"), bob)
     end
 
     test "mentioning an existing subscriber does not duplicate" do
@@ -206,22 +210,39 @@ defmodule Hive.TopicTest do
     end
 
     test "multiple mentions in one message" do
+      id = System.unique_integer([:positive])
+      bob = "multi-bob-#{id}"
+      charlie = "multi-charlie-#{id}"
+      dave = "multi-dave-#{id}"
+      Hive.Persistence.create_agent(bob, "d", "p")
+      Hive.Persistence.create_agent(charlie, "d", "p")
+      Hive.Persistence.create_agent(dave, "d", "p")
+      on_exit(fn ->
+        Hive.Persistence.delete_agent(bob)
+        Hive.Persistence.delete_agent(charlie)
+        Hive.Persistence.delete_agent(dave)
+      end)
+
       start_topic("multi-mention")
       Topic.join("multi-mention", "alice")
 
-      Topic.post("multi-mention", "alice", "cc @bob @charlie @dave")
+      Topic.post("multi-mention", "alice", "cc @#{bob} @#{charlie} @#{dave}")
 
       subs = Topic.subscribers("multi-mention")
-      assert MapSet.member?(subs, "bob")
-      assert MapSet.member?(subs, "charlie")
-      assert MapSet.member?(subs, "dave")
+      assert MapSet.member?(subs, bob)
+      assert MapSet.member?(subs, charlie)
+      assert MapSet.member?(subs, dave)
     end
 
     test "mentioned agent receives context via mention_invite" do
+      bob = "ctx-bob-#{System.unique_integer([:positive])}"
+      Hive.Persistence.create_agent(bob, "d", "p")
+      on_exit(fn -> Hive.Persistence.delete_agent(bob) end)
+
       start_topic("mention-ctx")
 
-      # Register fake agent for bob
-      {:ok, _} = Registry.register(Hive.AgentRegistry, "bob", nil)
+      # Register fake agent for bob so it can receive mention_invite
+      {:ok, _} = Registry.register(Hive.AgentRegistry, bob, nil)
 
       Topic.join("mention-ctx", "alice")
 
@@ -230,7 +251,7 @@ defmodule Hive.TopicTest do
       Topic.post("mention-ctx", "alice", "second message")
 
       # Now mention bob
-      Topic.post("mention-ctx", "alice", "hey @bob look at this")
+      Topic.post("mention-ctx", "alice", "hey @#{bob} look at this")
 
       # bob should get context (mention_invite with last 5 messages)
       assert_receive {:mention_invite, "mention-ctx", context}

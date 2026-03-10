@@ -77,16 +77,21 @@ defmodule Hive.Media do
   def save(data, media_type, opts \\ [])
 
   def save(data, media_type, opts) when is_binary(data) and is_binary(media_type) do
-    if byte_size(data) > @max_size do
-      {:error, "file too large (max #{div(@max_size, 1_000_000)}MB)"}
-    else
-      id = Base.hex_encode32(:crypto.strong_rand_bytes(10), case: :lower, padding: false)
-      ext = ext_for(media_type, opts[:filename])
-      filename = "#{id}.#{ext}"
-      path = Path.join(@upload_dir, filename)
-      ensure_upload_dir()
-      File.write!(path, data)
-      {:ok, "/uploads/#{filename}"}
+    cond do
+      byte_size(data) > @max_size ->
+        {:error, "file too large (max #{div(@max_size, 1_000_000)}MB)"}
+
+      media_type not in @allowed_types ->
+        {:error, :unsupported_type}
+
+      true ->
+        id = Base.hex_encode32(:crypto.strong_rand_bytes(10), case: :lower, padding: false)
+        ext = ext_for(media_type, opts[:filename])
+        filename = "#{id}.#{ext}"
+        path = Path.join(@upload_dir, filename)
+        ensure_upload_dir()
+        File.write!(path, data)
+        {:ok, "/uploads/#{filename}"}
     end
   end
 

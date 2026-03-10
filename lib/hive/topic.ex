@@ -276,6 +276,7 @@ defmodule Hive.Topic do
       |> Regex.scan(text)
       |> Enum.map(fn [_full, name] -> name end)
       |> Enum.uniq()
+      |> Enum.filter(&agent_exists?/1)
 
     Enum.reduce(mentioned, state, fn agent_name, acc ->
       {acc, joined?} = add_subscriber(acc, agent_name)
@@ -320,6 +321,14 @@ defmodule Hive.Topic do
     case Registry.lookup(Hive.AgentRegistry, agent_name) do
       [{pid, _}] -> send(pid, {:topic_left, topic_name})
       [] -> :ok
+    end
+  end
+
+  defp agent_exists?(name) do
+    case persist(fn -> Hive.Persistence.get_agent(name) end) do
+      {:ok, nil} -> false
+      {:ok, _} -> true
+      _ -> false
     end
   end
 

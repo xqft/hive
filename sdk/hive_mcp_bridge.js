@@ -76,7 +76,7 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {
       data: { type: "string", description: "Base64-encoded file data" },
       media_type: { type: "string", description: "MIME type of the file (e.g. image/png, application/pdf, text/plain)" },
-      filename: { type: "string", description: "Original filename (optional, used for display)" }
+      filename: { type: "string", description: "Original filename — include for readable download links (e.g. 'report.pdf'). Without it, files get a random hash name." }
     }, required: ["data", "media_type"] }},
   { name: "view_image", description: "View an uploaded file by URL. Returns images visually; returns other files as base64.",
     inputSchema: { type: "object", properties: {

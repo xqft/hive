@@ -350,7 +350,7 @@ defmodule HiveWeb.ChatLive do
                     No activity yet for {@scratchpad_agent}
                   </div>
 
-                  <%= for {event, idx} <- Enum.with_index(@scratchpad_events) do %>
+                  <%= for {event, idx} <- @scratchpad_events |> Enum.reverse() |> Enum.with_index() do %>
                     <.scratchpad_event event={event} idx={idx} />
                   <% end %>
                 </div>
@@ -409,9 +409,15 @@ defmodule HiveWeb.ChatLive do
     attachments =
       consume_uploaded_entries(socket, :media, fn %{path: path}, entry ->
         data = File.read!(path)
-        {:ok, url} = Hive.Media.save(data, entry.client_type, filename: entry.client_name)
-        {:ok, {url, entry.client_name, entry.client_type}}
+
+        case Hive.Media.save(data, entry.client_type, filename: entry.client_name) do
+          {:ok, url} -> {:ok, {url, entry.client_name, entry.client_type}}
+          {:error, reason} ->
+            Logger.warning("Upload rejected for #{entry.client_name}: #{inspect(reason)}")
+            {:ok, nil}
+        end
       end)
+      |> Enum.reject(&is_nil/1)
 
     attachment_md = format_attachments_markdown(attachments)
     full_text = if attachment_md == "", do: text, else: text <> "\n" <> attachment_md
@@ -443,9 +449,15 @@ defmodule HiveWeb.ChatLive do
       attachments =
         consume_uploaded_entries(socket, :media, fn %{path: path}, entry ->
           data = File.read!(path)
-          {:ok, url} = Hive.Media.save(data, entry.client_type, filename: entry.client_name)
-          {:ok, {url, entry.client_name, entry.client_type}}
+
+          case Hive.Media.save(data, entry.client_type, filename: entry.client_name) do
+            {:ok, url} -> {:ok, {url, entry.client_name, entry.client_type}}
+            {:error, reason} ->
+              Logger.warning("Upload rejected for #{entry.client_name}: #{inspect(reason)}")
+              {:ok, nil}
+          end
         end)
+        |> Enum.reject(&is_nil/1)
 
       attachment_md = format_attachments_markdown(attachments)
 
@@ -604,10 +616,10 @@ defmodule HiveWeb.ChatLive do
       Phoenix.PubSub.subscribe(Hive.PubSub, "agent:scratchpad:#{name}")
     end
 
-    # Load existing scratchpad events (reversed since they're stored most-recent-first)
+    # Load existing scratchpad events (kept in reverse/newest-first order for O(1) merge)
     events =
       try do
-        name |> Hive.Agent.scratchpad() |> Enum.reverse()
+        Hive.Agent.scratchpad(name)
       catch
         _, _ -> []
       end
@@ -723,33 +735,28 @@ defmodule HiveWeb.ChatLive do
     {:noreply, assign(socket, agents: agents, agent_statuses: agent_statuses)}
   end
 
-  # Thinking chunks — merge with the last thinking event instead of appending
+  # Thinking chunks — merge with the most recent thinking event instead of appending
+  # Events are stored in reverse order (newest first) for O(1) prepend/merge.
   def handle_info({:scratchpad_thinking, _agent_name, merged_event}, socket) do
     events = socket.assigns.scratchpad_events
 
     events =
-      case List.last(events) do
-        {:thinking, _, _} ->
-          List.replace_at(events, length(events) - 1, merged_event)
-
-        _ ->
-          events ++ [merged_event]
+      case events do
+        [{:thinking, _, _} | rest] -> [merged_event | rest]
+        _ -> [merged_event | events]
       end
 
     {:noreply, assign(socket, :scratchpad_events, events)}
   end
 
-  # Text chunks — merge with the last text event instead of appending
+  # Text chunks — merge with the most recent text event instead of appending
   def handle_info({:scratchpad_text, _agent_name, merged_event}, socket) do
     events = socket.assigns.scratchpad_events
 
     events =
-      case List.last(events) do
-        {:text, _, _} ->
-          List.replace_at(events, length(events) - 1, merged_event)
-
-        _ ->
-          events ++ [merged_event]
+      case events do
+        [{:text, _, _} | rest] -> [merged_event | rest]
+        _ -> [merged_event | events]
       end
 
     {:noreply, assign(socket, :scratchpad_events, events)}
@@ -757,9 +764,9 @@ defmodule HiveWeb.ChatLive do
 
   # Scratchpad events from agent activity
   def handle_info({:scratchpad, _agent_name, event}, socket) do
-    events = socket.assigns.scratchpad_events ++ [event]
+    events = [event | socket.assigns.scratchpad_events]
     # Keep last 100 to match agent-side buffer
-    events = if length(events) > 100, do: Enum.drop(events, length(events) - 100), else: events
+    events = if length(events) > 100, do: Enum.take(events, 100), else: events
     {:noreply, assign(socket, :scratchpad_events, events)}
   end
 
