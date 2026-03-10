@@ -32,7 +32,7 @@ COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Copy Hive SDK files for persistent agent mode
-COPY sdk/hive_agent.js sdk/hive_mcp_bridge.js sdk/message_batcher.js /opt/hive/
+COPY sdk/hive_agent.js sdk/hive_mcp_bridge.js sdk/message_batcher.js sdk/message_channel.js /opt/hive/
 COPY sdk/package.json sdk/package-lock.json /opt/hive/
 RUN cd /opt/hive && npm ci --omit=dev
 
