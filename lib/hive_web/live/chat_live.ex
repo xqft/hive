@@ -187,7 +187,7 @@ defmodule HiveWeb.ChatLive do
                 <span>{thinking_summary(@typing_agents)}</span>
               </div>
 
-              <form id={"msg-form-#{@form_reset}"} phx-submit="send_message" class="ui-chat-composer">
+              <form id={"msg-form-#{@form_reset}"} phx-submit="send_message" phx-change="validate" class="ui-chat-composer">
                 <div
                   id="chat-composer-shell"
                   class="ui-chat-composer__editor"
@@ -489,6 +489,10 @@ defmodule HiveWeb.ChatLive do
        new_topic_error: nil
      )}
   end
+
+  # No-op handler for phx-change on the message form.
+  # Required so LiveView processes form changes, which triggers file upload tracking.
+  def handle_event("validate", _params, socket), do: {:noreply, socket}
 
   def handle_event("validate_topic_name", %{"name" => name}, socket) do
     error =
