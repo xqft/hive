@@ -74,7 +74,9 @@ defmodule Hive.Media do
   Saves file data to disk. Returns `{:ok, url}` or `{:error, reason}`.
   Optionally accepts an original filename to preserve the extension.
   """
-  def save(data, media_type, opts \\ []) when media_type in @allowed_types do
+  def save(data, media_type, opts \\ [])
+
+  def save(data, media_type, opts) when media_type in @allowed_types do
     if byte_size(data) > @max_size do
       {:error, "file too large (max #{div(@max_size, 1_000_000)}MB)"}
     else
