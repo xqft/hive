@@ -279,6 +279,8 @@ defmodule Hive.Persistence do
   end
 
   def handle_call({:delete_topic, name}, _from, state) do
+    # Delete messages first — FK on messages.topic lacks ON DELETE CASCADE
+    exec_write(state.writer, "DELETE FROM messages WHERE topic = ?1", [name])
     result = exec_write(state.writer, "DELETE FROM topics WHERE name = ?1", [name])
     {:reply, result, state}
   end

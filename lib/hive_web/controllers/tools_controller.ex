@@ -151,16 +151,17 @@ defmodule HiveWeb.ToolsController do
 
   defp execute_tool(_agent, "delete_topic", %{"topic" => topic}) do
     case Registry.lookup(Hive.TopicRegistry, topic) do
-      [{pid, _}] ->
-        DynamicSupervisor.terminate_child(Hive.TopicSup, pid)
-        Hive.Persistence.delete_topic(topic)
+      [{pid, _}] -> DynamicSupervisor.terminate_child(Hive.TopicSup, pid)
+      [] -> :ok
+    end
+
+    case Hive.Persistence.delete_topic(topic) do
+      :ok ->
         Phoenix.PubSub.broadcast(Hive.PubSub, "registry", {:topic_deleted, topic})
         {:ok, "Deleted topic '#{topic}'"}
 
-      [] ->
-        # No running GenServer — try deleting from persistence anyway
-        Hive.Persistence.delete_topic(topic)
-        {:ok, "Deleted topic '#{topic}' (was not running)"}
+      {:error, reason} ->
+        {:error, "Failed to delete topic '#{topic}': #{inspect(reason)}"}
     end
   end
 
