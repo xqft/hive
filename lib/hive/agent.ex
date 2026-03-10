@@ -611,7 +611,9 @@ defmodule Hive.Agent do
           "/workspace/.hive/context.md"
         ]
 
-    stderr_log = Path.join(agent_dir(state.name), "sdk_stderr.log")
+    agent_dir = agent_dir(state.name)
+    File.mkdir_p!(agent_dir)
+    stderr_log = Path.join(agent_dir, "sdk_stderr.log")
     shell_cmd = Enum.join([docker | docker_args], " ") <> " 2>>#{stderr_log}"
 
     Port.open(
@@ -634,7 +636,9 @@ defmodule Hive.Agent do
     update_container_claude_md(state, container_name)
     update_container_context(state, container_name)
 
-    stderr_log = Path.join(agent_dir(state.name), "sdk_stderr.log")
+    agent_dir = agent_dir(state.name)
+    File.mkdir_p!(agent_dir)
+    stderr_log = Path.join(agent_dir, "sdk_stderr.log")
     shell_cmd = "#{docker} start -ia #{container_name} 2>>#{stderr_log}"
 
     Port.open(
