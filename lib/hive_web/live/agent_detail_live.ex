@@ -295,10 +295,12 @@ defmodule HiveWeb.AgentDetailLive do
   attr :muted, :boolean, default: false
 
   defp expandable_pre(assigns) do
-    lines = String.split(assigns.text || "", "\n")
+    text = assigns.text || ""
+    lines = String.split(text, "\n")
     is_expanded = MapSet.member?(assigns.expanded, assigns.idx)
-    has_more = length(lines) > assigns.max_lines
-    preview = if has_more && !is_expanded, do: lines |> Enum.take(assigns.max_lines) |> Enum.join("\n"), else: assigns.text
+    # Check both line count AND character length (thinking text often has few newlines but is very long)
+    has_more = length(lines) > assigns.max_lines || String.length(text) > assigns.max_lines * 120
+    preview = if has_more && !is_expanded, do: lines |> Enum.take(assigns.max_lines) |> Enum.join("\n") |> String.slice(0, assigns.max_lines * 120), else: text
 
     assigns = assign(assigns, preview: preview, has_more: has_more, is_expanded: is_expanded)
     ~H"""
