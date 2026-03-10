@@ -39,7 +39,7 @@ async function triggerLiveViewUpload(
   const fileInput = page.locator("input[data-phx-upload-ref]");
   await fileInput.setInputFiles(files);
   // Wait for LiveView to process and render upload previews
-  await page.waitForSelector(".ui-upload-previews");
+  await page.waitForSelector(".ui-upload-previews", { timeout: 5000 });
 }
 
 test.describe("File upload", () => {
