@@ -1011,8 +1011,44 @@ defmodule HiveWeb.ToolsControllerTest do
       assert body["error"] =~ "invalid base64"
     end
 
-    test "rejects unsupported media types", %{conn: conn} do
-      base64 = Base.encode64("not an image")
+    test "accepts any MIME type", %{conn: conn} do
+      base64 = Base.encode64("some binary data")
+
+      body =
+        conn
+        |> tool_call("test-agent", "upload_media", %{
+          "data" => base64,
+          "media_type" => "application/x-executable"
+        })
+        |> json_response(200)
+
+      assert body["ok"] == true
+      assert "/uploads/" <> filename = body["result"]
+      assert String.ends_with?(filename, ".bin")
+
+      on_exit(fn -> File.rm(Path.join(Hive.Media.upload_dir(), filename)) end)
+    end
+
+    test "uploads a PDF file", %{conn: conn} do
+      base64 = Base.encode64("%PDF-1.4 test content")
+
+      body =
+        conn
+        |> tool_call("test-agent", "upload_media", %{
+          "data" => base64,
+          "media_type" => "application/pdf"
+        })
+        |> json_response(200)
+
+      assert body["ok"] == true
+      assert "/uploads/" <> filename = body["result"]
+      assert String.ends_with?(filename, ".pdf")
+
+      on_exit(fn -> File.rm(Path.join(Hive.Media.upload_dir(), filename)) end)
+    end
+
+    test "uploads a plain text file", %{conn: conn} do
+      base64 = Base.encode64("Hello, world!")
 
       body =
         conn
@@ -1022,8 +1058,48 @@ defmodule HiveWeb.ToolsControllerTest do
         })
         |> json_response(200)
 
-      assert body["ok"] == false
-      assert body["error"] =~ "unsupported media type"
+      assert body["ok"] == true
+      assert "/uploads/" <> filename = body["result"]
+      assert String.ends_with?(filename, ".txt")
+
+      on_exit(fn -> File.rm(Path.join(Hive.Media.upload_dir(), filename)) end)
+    end
+
+    test "uploads with optional filename param", %{conn: conn} do
+      base64 = Base.encode64("name,age\nAlice,30")
+
+      body =
+        conn
+        |> tool_call("test-agent", "upload_media", %{
+          "data" => base64,
+          "media_type" => "text/csv",
+          "filename" => "data.csv"
+        })
+        |> json_response(200)
+
+      assert body["ok"] == true
+      assert "/uploads/" <> filename = body["result"]
+      assert String.ends_with?(filename, ".csv")
+
+      on_exit(fn -> File.rm(Path.join(Hive.Media.upload_dir(), filename)) end)
+    end
+
+    test "uploads a ZIP archive", %{conn: conn} do
+      base64 = Base.encode64("PK" <> :crypto.strong_rand_bytes(50))
+
+      body =
+        conn
+        |> tool_call("test-agent", "upload_media", %{
+          "data" => base64,
+          "media_type" => "application/zip"
+        })
+        |> json_response(200)
+
+      assert body["ok"] == true
+      assert "/uploads/" <> filename = body["result"]
+      assert String.ends_with?(filename, ".zip")
+
+      on_exit(fn -> File.rm(Path.join(Hive.Media.upload_dir(), filename)) end)
     end
   end
 
@@ -1058,7 +1134,7 @@ defmodule HiveWeb.ToolsControllerTest do
       on_exit(fn -> File.rm(Path.join(Hive.Media.upload_dir(), filename)) end)
     end
 
-    test "returns error for non-existent image", %{conn: conn} do
+    test "returns error for non-existent file", %{conn: conn} do
       body =
         conn
         |> tool_call("test-agent", "view_image", %{"url" => "/uploads/nonexistent.png"})
@@ -1066,6 +1142,36 @@ defmodule HiveWeb.ToolsControllerTest do
 
       assert body["ok"] == false
       assert body["error"] =~ "not found"
+    end
+
+    test "returns base64 for a non-image file", %{conn: conn} do
+      # Upload a text file first
+      text_data = "Hello from a text file"
+      base64 = Base.encode64(text_data)
+
+      upload_body =
+        conn
+        |> tool_call("test-agent", "upload_media", %{
+          "data" => base64,
+          "media_type" => "text/plain"
+        })
+        |> json_response(200)
+
+      url = upload_body["result"]
+
+      # Now view it
+      view_body =
+        conn
+        |> recycle()
+        |> tool_call("test-agent", "view_image", %{"url" => url})
+        |> json_response(200)
+
+      assert view_body["ok"] == true
+      assert view_body["result"]["base64"] == base64
+
+      # Cleanup
+      "/uploads/" <> filename = url
+      on_exit(fn -> File.rm(Path.join(Hive.Media.upload_dir(), filename)) end)
     end
 
     test "rejects non-upload URLs", %{conn: conn} do

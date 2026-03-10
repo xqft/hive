@@ -1105,6 +1105,26 @@ select {
   border: 1px solid var(--ui-border);
 }
 
+.ui-upload-preview__file {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 4px;
+  border: 1px solid var(--ui-border);
+  background: var(--ui-surface-muted);
+  font-size: 0.75rem;
+  color: var(--ui-text-soft);
+  max-width: 160px;
+  height: 48px;
+}
+
+.ui-upload-preview__filename {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .ui-upload-preview__remove {
   position: absolute;
   top: -6px;
@@ -1120,6 +1140,27 @@ select {
   place-items: center;
   border: 0;
   cursor: pointer;
+}
+
+/* File attachment links in messages */
+.ui-markdown a[href^="/uploads/"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--ui-border);
+  background: var(--ui-surface-muted);
+  color: var(--ui-text);
+  font-size: 0.85rem;
+  text-decoration: none;
+  transition: background 0.15s;
+  margin: 0.15rem 0;
+}
+
+.ui-markdown a[href^="/uploads/"]:hover {
+  background: var(--ui-surface-hover, var(--ui-border));
+  text-decoration: none;
 }
 
 /* Upload button in composer */

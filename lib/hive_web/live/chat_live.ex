@@ -59,9 +59,9 @@ defmodule HiveWeb.ChatLive do
       |> assign(:aside_open, false)
       |> assign(:mobile_topics_open, false)
       |> allow_upload(:media,
-        accept: ~w(.jpg .jpeg .png .gif .webp),
+        accept: :any,
         max_entries: 4,
-        max_file_size: 5_000_000
+        max_file_size: 10_000_000
       )
 
     {:ok, socket}
@@ -168,7 +168,7 @@ defmodule HiveWeb.ChatLive do
                 <span>{thinking_summary(@typing_agents)}</span>
               </div>
 
-              <form id={"msg-form-#{@form_reset}"} phx-submit="send_message" class="ui-chat-composer">
+              <form id={"msg-form-#{@form_reset}"} phx-submit="send_message" phx-change="validate" class="ui-chat-composer">
                 <div
                   id="chat-composer-shell"
                   class="ui-chat-composer__editor"
@@ -206,7 +206,16 @@ defmodule HiveWeb.ChatLive do
                     style="padding: 0.5rem 0.95rem 0;"
                   >
                     <div :for={entry <- @uploads.media.entries} class="ui-upload-preview">
-                      <.live_img_preview entry={entry} class="ui-upload-preview__thumb" />
+                      <%= if image_entry?(entry) do %>
+                        <.live_img_preview entry={entry} class="ui-upload-preview__thumb" />
+                      <% else %>
+                        <div class="ui-upload-preview__file">
+                          <.icon name="hero-document" class="size-5" />
+                          <span class="ui-upload-preview__filename" title={entry.client_name}>
+                            {truncate_filename(entry.client_name, 20)}
+                          </span>
+                        </div>
+                      <% end %>
                       <button
                         type="button"
                         phx-click="cancel_upload"
@@ -220,7 +229,7 @@ defmodule HiveWeb.ChatLive do
                   </div>
 
                   <div class="ui-chat-composer__toolbar">
-                    <label class="ui-chat-composer__upload-btn" title="Attach image">
+                    <label class="ui-chat-composer__upload-btn" title="Attach file">
                       <.live_file_input upload={@uploads.media} class="hidden" />
                       <.icon name="hero-paper-clip" class="size-5" />
                     </label>
@@ -319,16 +328,16 @@ defmodule HiveWeb.ChatLive do
   end
 
   def handle_event("send_message", %{"text" => text}, socket) when text != "" do
-    # Consume any uploaded images and get their URLs
-    urls =
+    # Consume any uploaded files and get their URLs
+    attachments =
       consume_uploaded_entries(socket, :media, fn %{path: path}, entry ->
         data = File.read!(path)
-        {:ok, url} = Hive.Media.save(data, entry.client_type)
-        {:ok, url}
+        {:ok, url} = Hive.Media.save(data, entry.client_type, filename: entry.client_name)
+        {:ok, {url, entry.client_name, entry.client_type}}
       end)
 
-    img_md = Enum.map_join(urls, "\n", &"![image](#{&1})")
-    full_text = if img_md == "", do: text, else: text <> "\n" <> img_md
+    attachment_md = format_attachments_markdown(attachments)
+    full_text = if attachment_md == "", do: text, else: text <> "\n" <> attachment_md
 
     active_topic = socket.assigns.active_topic
 
@@ -354,16 +363,16 @@ defmodule HiveWeb.ChatLive do
   def handle_event("send_message", _params, socket) do
     # Handle case where text is empty but there are uploads
     if socket.assigns.uploads.media.entries != [] do
-      urls =
+      attachments =
         consume_uploaded_entries(socket, :media, fn %{path: path}, entry ->
           data = File.read!(path)
-          {:ok, url} = Hive.Media.save(data, entry.client_type)
-          {:ok, url}
+          {:ok, url} = Hive.Media.save(data, entry.client_type, filename: entry.client_name)
+          {:ok, {url, entry.client_name, entry.client_type}}
         end)
 
-      img_md = Enum.map_join(urls, "\n", &"![image](#{&1})")
+      attachment_md = format_attachments_markdown(attachments)
 
-      if img_md != "" do
+      if attachment_md != "" do
         active_topic = socket.assigns.active_topic
 
         socket =
@@ -374,11 +383,11 @@ defmodule HiveWeb.ChatLive do
             "dm:" <> _ ->
               other = dm_other_party(active_topic, "human")
               {:ok, dm_name} = Hive.Topic.ensure_dm("human", other)
-              :ok = Hive.Topic.post(dm_name, "human", img_md)
+              :ok = Hive.Topic.post(dm_name, "human", attachment_md)
               switch_active_topic(socket, dm_name)
 
             _topic ->
-              :ok = Hive.Topic.post(active_topic, "human", img_md)
+              :ok = Hive.Topic.post(active_topic, "human", attachment_md)
               switch_active_topic(socket, active_topic)
           end
 
@@ -403,6 +412,10 @@ defmodule HiveWeb.ChatLive do
        new_topic_error: nil
      )}
   end
+
+  # No-op handler for phx-change on the message form.
+  # Required so LiveView processes form changes, which triggers file upload tracking.
+  def handle_event("validate", _params, socket), do: {:noreply, socket}
 
   def handle_event("validate_topic_name", %{"name" => name}, socket) do
     error =
@@ -1031,4 +1044,32 @@ defmodule HiveWeb.ChatLive do
   end
 
   defp unread_count(unread_counts, topic), do: Map.get(unread_counts, topic, 0)
+
+  # ---------------------------------------------------------------------------
+  # File upload helpers
+  # ---------------------------------------------------------------------------
+
+  defp image_entry?(entry) do
+    Hive.Media.image_type?(entry.client_type)
+  end
+
+  defp format_attachments_markdown(attachments) do
+    Enum.map_join(attachments, "\n", fn {url, client_name, client_type} ->
+      if Hive.Media.image_type?(client_type) do
+        "![image](#{url})"
+      else
+        "[📎 #{client_name}](#{url})"
+      end
+    end)
+  end
+
+  defp truncate_filename(name, max_len) do
+    if String.length(name) > max_len do
+      ext = Path.extname(name)
+      base = Path.basename(name, ext)
+      String.slice(base, 0, max_len - String.length(ext) - 1) <> "…" <> ext
+    else
+      name
+    end
+  end
 end
