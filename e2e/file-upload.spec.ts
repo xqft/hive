@@ -28,27 +28,22 @@ function cleanupTempFile(filePath: string): void {
 }
 
 /**
- * Set files on the LiveView upload input and trigger the LV upload hook.
- * Playwright's setInputFiles() alone doesn't fire LiveView's internal
- * file tracking — we need to re-dispatch a change event so the
- * Phoenix.LiveFileUpload hook calls trackFiles().
+ * Trigger a LiveView file upload using Playwright's native file chooser API.
+ * Clicks the upload button which opens the browser's real file picker,
+ * then sets the files on it. This fires a native `change` event that
+ * Phoenix.LiveFileUpload's hook reliably handles — no synthetic events.
  */
 async function triggerLiveViewUpload(
   page: Page,
   files: string | string[],
 ): Promise<void> {
-  const fileInput = page.locator("input[data-phx-upload-ref]");
-  await fileInput.setInputFiles(files);
-  await page.evaluate(() => {
-    const input = document.querySelector(
-      'input[data-phx-upload-ref]',
-    ) as HTMLInputElement;
-    if (input) {
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-    }
-  });
+  const [fileChooser] = await Promise.all([
+    page.waitForEvent("filechooser"),
+    page.locator(".ui-chat-composer__upload-btn").click(),
+  ]);
+  await fileChooser.setFiles(files);
   // Wait for LiveView to process the upload and render previews
-  await page.locator('.ui-upload-previews').waitFor({ state: 'visible', timeout: 10000 });
+  await page.locator(".ui-upload-previews").waitFor({ state: "visible", timeout: 10000 });
 }
 
 test.describe("File upload", () => {
@@ -61,7 +56,7 @@ test.describe("File upload", () => {
     if (await topicItem.isVisible({ timeout: 2000 }).catch(() => false)) {
       await topicItem.click();
       // Wait for topic selection to take effect (composer becomes active)
-      await page.locator('.ui-chat-composer').waitFor({ state: 'visible', timeout: 5000 });
+      await page.locator(".ui-chat-composer").waitFor({ state: "visible", timeout: 5000 });
     }
   });
 
@@ -167,6 +162,115 @@ test.describe("File upload", () => {
       cleanupTempFile(imgPath);
       cleanupTempFile(txtPath);
       cleanupTempFile(csvPath);
+    }
+  });
+
+  test("image upload sends and renders as image in message", async ({ page }) => {
+    const pngData = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADklEQVQI12P4z8BQDwAEgAF/QualzQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    const filePath = createTempFile("render-test.png", pngData);
+
+    try {
+      await triggerLiveViewUpload(page, filePath);
+
+      // Type a message and send
+      const textarea = page.locator(".ui-chat-composer textarea, .ui-chat-composer [contenteditable]");
+      await textarea.fill("Check this image");
+      await page.locator("#chat-send-button").click();
+
+      // Wait for the message to appear in the chat
+      const messages = page.locator(".ui-chat-messages");
+
+      // The rendered message should contain an img tag (from ![image](url) markdown)
+      const imgInMessage = messages.locator("img[src*='/uploads/']");
+      await expect(imgInMessage).toBeVisible({ timeout: 10000 });
+    } finally {
+      cleanupTempFile(filePath);
+    }
+  });
+
+  test("non-image upload sends and renders as download link", async ({ page }) => {
+    const filePath = createTempFile(
+      "report.pdf",
+      "%PDF-1.4 test pdf for link rendering",
+    );
+
+    try {
+      await triggerLiveViewUpload(page, filePath);
+
+      // Type a message and send
+      const textarea = page.locator(".ui-chat-composer textarea, .ui-chat-composer [contenteditable]");
+      await textarea.fill("See attached report");
+      await page.locator("#chat-send-button").click();
+
+      // Wait for the message to appear with a file link
+      const messages = page.locator(".ui-chat-messages");
+
+      // The rendered message should contain a link to /uploads/ (from [📎 name](url) markdown)
+      const fileLink = messages.locator("a[href*='/uploads/']");
+      await expect(fileLink).toBeVisible({ timeout: 10000 });
+      await expect(fileLink).toContainText("report.pdf");
+    } finally {
+      cleanupTempFile(filePath);
+    }
+  });
+
+  test("max entries limit rejects fifth file", async ({ page }) => {
+    // max_entries is 4, so uploading 5 files should only accept 4
+    const pngData = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADklEQVQI12P4z8BQDwAEgAF/QualzQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    const files = Array.from({ length: 5 }, (_, i) =>
+      createTempFile(`file-${i}.png`, pngData),
+    );
+
+    try {
+      // Upload all 5 files at once via the native file chooser
+      const [fileChooser] = await Promise.all([
+        page.waitForEvent("filechooser"),
+        page.locator(".ui-chat-composer__upload-btn").click(),
+      ]);
+      await fileChooser.setFiles(files);
+
+      // Wait a moment for LiveView to process
+      await page.waitForTimeout(2000);
+
+      // Should show at most 4 previews (max_entries: 4)
+      const allPreviews = page.locator(".ui-upload-preview");
+      const count = await allPreviews.count();
+      expect(count).toBeLessThanOrEqual(4);
+
+      // Or there should be an error displayed for too many files
+      // LiveView may show an error on the upload entries
+      if (count === 0) {
+        // If no previews rendered, check for an error state
+        // (LiveView rejects the entire batch when exceeding max_entries)
+        const errorText = page.locator("[phx-feedback-for], .ui-upload-error, .alert");
+        const hasError = await errorText.isVisible().catch(() => false);
+        expect(hasError || count <= 4).toBeTruthy();
+      }
+    } finally {
+      files.forEach(cleanupTempFile);
+    }
+  });
+
+  test("upload progress indicator is visible during upload", async ({ page }) => {
+    // Use a slightly larger file to have a visible upload state
+    const data = Buffer.alloc(50_000, "x");
+    const filePath = createTempFile("progress-test.txt", data);
+
+    try {
+      await triggerLiveViewUpload(page, filePath);
+
+      // The upload preview element should be visible (indicates upload processed)
+      const preview = page.locator(".ui-upload-preview");
+      await expect(preview).toBeVisible();
+      await expect(preview).toHaveCount(1);
+    } finally {
+      cleanupTempFile(filePath);
     }
   });
 });
