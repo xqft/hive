@@ -13,7 +13,7 @@ defmodule HiveWeb.ToolsController do
   require Logger
 
   @agent_tools ~w(
-    send_message send_dm create_topic join_topic leave_topic
+    send_message send_dm create_topic join_topic leave_topic delete_topic
     get_topic_history list_agents list_topics
     create_agent delete_agent
     write_skill read_skill delete_skill write_claude_md
