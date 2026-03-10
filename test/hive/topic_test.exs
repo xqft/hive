@@ -180,6 +180,10 @@ defmodule Hive.TopicTest do
 
   describe "@mention detection" do
     test "mentioning a non-subscriber auto-invites them" do
+      # Create agent in persistence so mention lookup finds it
+      Hive.Persistence.create_agent("bob", "test", "test")
+      on_exit(fn -> Hive.Persistence.delete_agent("bob") end)
+
       start_topic("mentions")
       Topic.join("mentions", "alice")
 
@@ -193,7 +197,21 @@ defmodule Hive.TopicTest do
       assert MapSet.member?(Topic.subscribers("mentions"), "bob")
     end
 
+    test "mentioning a non-existent name does not add a subscriber" do
+      start_topic("mention-ghost")
+      Topic.join("mention-ghost", "alice")
+
+      # mention a name that doesn't exist as an agent
+      Topic.post("mention-ghost", "alice", "hey @nobody check this out")
+
+      subs = Topic.subscribers("mention-ghost")
+      refute MapSet.member?(subs, "nobody")
+    end
+
     test "mentioning an existing subscriber does not duplicate" do
+      Hive.Persistence.create_agent("bob", "test", "test")
+      on_exit(fn -> Hive.Persistence.delete_agent("bob") end)
+
       start_topic("mention-dup")
       Topic.join("mention-dup", "alice")
       Topic.join("mention-dup", "bob")
@@ -206,6 +224,14 @@ defmodule Hive.TopicTest do
     end
 
     test "multiple mentions in one message" do
+      for name <- ~w(bob charlie dave) do
+        Hive.Persistence.create_agent(name, "test", "test")
+      end
+
+      on_exit(fn ->
+        for name <- ~w(bob charlie dave), do: Hive.Persistence.delete_agent(name)
+      end)
+
       start_topic("multi-mention")
       Topic.join("multi-mention", "alice")
 
@@ -218,6 +244,9 @@ defmodule Hive.TopicTest do
     end
 
     test "mentioned agent receives context via mention_invite" do
+      Hive.Persistence.create_agent("bob", "test", "test")
+      on_exit(fn -> Hive.Persistence.delete_agent("bob") end)
+
       start_topic("mention-ctx")
 
       # Register fake agent for bob

@@ -202,10 +202,9 @@ defmodule Hive.IntegrationTest do
 
   describe "DM flow" do
     test "ensure_dm creates channel, persists messages, and is idempotent", %{p: p} do
-      a = agent_name(p, "alice")
+      a = "human"
       b = agent_name(p, "bob")
 
-      :ok = Persistence.create_agent(a, "d", "p")
       :ok = Persistence.create_agent(b, "d", "p")
 
       # Create DM channel
@@ -215,7 +214,7 @@ defmodule Hive.IntegrationTest do
       [sorted_a, sorted_b] = Enum.sort([a, b])
       assert dm_name == "dm:#{sorted_a}:#{sorted_b}"
 
-      # Post a message from agent_a
+      # Post a message from human
       :ok = Topic.post(dm_name, a, "hey bob")
 
       :sys.get_state(Hive.Persistence)
@@ -232,10 +231,9 @@ defmodule Hive.IntegrationTest do
     end
 
     test "both parties are subscribed after ensure_dm", %{p: p} do
-      a = agent_name(p, "alice")
+      a = "human"
       b = agent_name(p, "bob")
 
-      :ok = Persistence.create_agent(a, "d", "p")
       :ok = Persistence.create_agent(b, "d", "p")
 
       {:ok, dm_name} = Topic.ensure_dm(a, b)
@@ -243,6 +241,17 @@ defmodule Hive.IntegrationTest do
       subs = Topic.subscribers(dm_name)
       assert MapSet.member?(subs, a)
       assert MapSet.member?(subs, b)
+    end
+
+    test "agent-to-agent DMs are rejected", %{p: p} do
+      a = agent_name(p, "alice")
+      b = agent_name(p, "bob")
+
+      :ok = Persistence.create_agent(a, "d", "p")
+      :ok = Persistence.create_agent(b, "d", "p")
+
+      assert {:error, "DMs are only supported between human and an agent"} =
+               Topic.ensure_dm(a, b)
     end
   end
 

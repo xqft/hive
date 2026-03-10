@@ -16,9 +16,9 @@ const TOOLS = [
       topic: { type: "string", description: "Topic name to post to" },
       text: { type: "string", description: "Message text" }
     }, required: ["text"] }},
-  { name: "send_dm", description: "Send a direct message to another agent or 'human'. If the current turn came from a topic, include reason to make the out-of-band DM explicit.",
+  { name: "send_dm", description: "Send a direct message to the human user. If the current turn came from a topic, include reason to make the out-of-band DM explicit.",
     inputSchema: { type: "object", properties: {
-      to: { type: "string", description: "Agent name or 'human'" },
+      to: { type: "string", description: "Must be 'human'" },
       text: { type: "string", description: "Message text" },
       reason: { type: "string", description: "Required when sending a DM from a topic-triggered turn" }
     }, required: ["text"] }},

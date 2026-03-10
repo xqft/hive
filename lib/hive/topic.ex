@@ -71,30 +71,35 @@ defmodule Hive.Topic do
   end
 
   @doc """
-  Ensure a DM channel exists between two agents.
+  Ensure a DM channel exists between a user and an agent.
   Creates the topic and subscribes both if it doesn't exist yet.
+  At least one party must be "human" — agent-to-agent DMs are not supported.
   """
   def ensure_dm(agent_a, agent_b) do
-    name = dm_channel_name(agent_a, agent_b)
+    if "human" not in [agent_a, agent_b] do
+      {:error, "DMs are only supported between human and an agent"}
+    else
+      name = dm_channel_name(agent_a, agent_b)
 
-    case Registry.lookup(Hive.TopicRegistry, name) do
-      [{_pid, _}] ->
-        {:ok, name}
+      case Registry.lookup(Hive.TopicRegistry, name) do
+        [{_pid, _}] ->
+          {:ok, name}
 
-      [] ->
-        persist(fn -> Hive.Persistence.create_topic(name, nil, "dm", agent_a) end)
+        [] ->
+          persist(fn -> Hive.Persistence.create_topic(name, nil, "dm", agent_a) end)
 
-        {:ok, _pid} =
-          DynamicSupervisor.start_child(
-            Hive.TopicSup,
-            {__MODULE__, name: name, description: nil, type: :dm, created_by: agent_a}
-          )
+          {:ok, _pid} =
+            DynamicSupervisor.start_child(
+              Hive.TopicSup,
+              {__MODULE__, name: name, description: nil, type: :dm, created_by: agent_a}
+            )
 
-        # Subscribe both parties (persistence + in-memory)
-        join(name, agent_a)
-        join(name, agent_b)
+          # Subscribe both parties (persistence + in-memory)
+          join(name, agent_a)
+          join(name, agent_b)
 
-        {:ok, name}
+          {:ok, name}
+      end
     end
   end
 
@@ -276,6 +281,8 @@ defmodule Hive.Topic do
       |> Regex.scan(text)
       |> Enum.map(fn [_full, name] -> name end)
       |> Enum.uniq()
+      # Only invite names that correspond to actual registered agents
+      |> Enum.filter(&agent_exists?/1)
 
     Enum.reduce(mentioned, state, fn agent_name, acc ->
       {acc, joined?} = add_subscriber(acc, agent_name)
@@ -297,6 +304,13 @@ defmodule Hive.Topic do
 
       acc
     end)
+  end
+
+  defp agent_exists?(name) do
+    case persist(fn -> Hive.Persistence.get_agent(name) end) do
+      {:ok, agent} when not is_nil(agent) -> true
+      _ -> false
+    end
   end
 
   defp add_subscriber(state, agent_name) do
