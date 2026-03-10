@@ -76,7 +76,7 @@ defmodule Hive.Media do
   """
   def save(data, media_type, opts \\ [])
 
-  def save(data, media_type, opts) when media_type in @allowed_types do
+  def save(data, media_type, opts) when is_binary(data) and is_binary(media_type) do
     if byte_size(data) > @max_size do
       {:error, "file too large (max #{div(@max_size, 1_000_000)}MB)"}
     else
@@ -88,10 +88,6 @@ defmodule Hive.Media do
       File.write!(path, data)
       {:ok, "/uploads/#{filename}"}
     end
-  end
-
-  def save(_data, _media_type, _opts) do
-    {:error, "unsupported file type"}
   end
 
   @doc """

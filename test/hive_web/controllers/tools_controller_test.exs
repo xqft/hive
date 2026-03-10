@@ -1011,8 +1011,8 @@ defmodule HiveWeb.ToolsControllerTest do
       assert body["error"] =~ "invalid base64"
     end
 
-    test "rejects unsupported media types", %{conn: conn} do
-      base64 = Base.encode64("not an image")
+    test "accepts any MIME type", %{conn: conn} do
+      base64 = Base.encode64("some binary data")
 
       body =
         conn
@@ -1022,8 +1022,11 @@ defmodule HiveWeb.ToolsControllerTest do
         })
         |> json_response(200)
 
-      assert body["ok"] == false
-      assert body["error"] =~ "unsupported file type"
+      assert body["ok"] == true
+      assert "/uploads/" <> filename = body["result"]
+      assert String.ends_with?(filename, ".bin")
+
+      on_exit(fn -> File.rm(Path.join(Hive.Media.upload_dir(), filename)) end)
     end
 
     test "uploads a PDF file", %{conn: conn} do

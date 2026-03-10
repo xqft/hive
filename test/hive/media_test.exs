@@ -124,16 +124,33 @@ defmodule Hive.MediaTest do
     end
   end
 
-  describe "save/2 — rejection" do
-    test "rejects unsupported media types" do
-      assert {:error, msg} = Hive.Media.save("data", "application/x-executable")
-      assert msg =~ "unsupported file type"
+  describe "save/2 — any file type" do
+    test "accepts files with unknown MIME types" do
+      data = "some binary data"
+      assert {:ok, "/uploads/" <> filename} = Hive.Media.save(data, "application/x-executable")
+      assert String.ends_with?(filename, ".bin")
+      cleanup("/uploads/" <> filename)
     end
 
-    test "rejects completely unknown types" do
-      assert {:error, _} = Hive.Media.save("data", "fake/type")
+    test "accepts completely custom MIME types" do
+      data = "custom format data"
+      assert {:ok, "/uploads/" <> filename} = Hive.Media.save(data, "application/x-custom-format")
+      assert String.ends_with?(filename, ".bin")
+      cleanup("/uploads/" <> filename)
     end
 
+    test "uses filename extension for unknown MIME types" do
+      data = "print('hello')"
+
+      assert {:ok, "/uploads/" <> filename} =
+               Hive.Media.save(data, "text/x-python", filename: "script.py")
+
+      assert String.ends_with?(filename, ".py")
+      cleanup("/uploads/" <> filename)
+    end
+  end
+
+  describe "save/2 — size limits" do
     test "rejects files over 10MB" do
       big_data = :crypto.strong_rand_bytes(10_000_001)
       assert {:error, msg} = Hive.Media.save(big_data, "image/png")
