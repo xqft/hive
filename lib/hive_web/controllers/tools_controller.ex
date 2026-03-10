@@ -256,7 +256,9 @@ defmodule HiveWeb.ToolsController do
     with :ok <- Hive.Validation.validate_name(name) do
       dir = Path.join(["priv", "agents", agent, ".claude", "skills", name])
       File.mkdir_p!(dir)
-      File.write!(Path.join(dir, "SKILL.md"), content)
+      skill_path = Path.join(dir, "SKILL.md")
+      File.write!(skill_path, content)
+      sync_to_container(agent, skill_path, "/workspace/.claude/skills/#{name}/SKILL.md")
       {:ok, "Skill '#{name}' written to #{dir}/SKILL.md"}
     end
   end
@@ -275,6 +277,7 @@ defmodule HiveWeb.ToolsController do
 
     if File.exists?(dir) do
       {:ok, _} = File.rm_rf(dir)
+      delete_from_container(agent, "/workspace/.claude/skills/#{name}")
       {:ok, "Skill '#{name}' deleted"}
     else
       {:error, "Skill '#{name}' not found"}
@@ -286,6 +289,7 @@ defmodule HiveWeb.ToolsController do
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, content)
     Hive.Persistence.update_agent_personality(agent, content)
+    sync_to_container(agent, path, "/workspace/CLAUDE.md")
     {:ok, "CLAUDE.md updated at #{path}"}
   end
 
@@ -517,4 +521,32 @@ defmodule HiveWeb.ToolsController do
   end
 
   defp ensure_datetime(_), do: DateTime.utc_now()
+
+  # ---------------------------------------------------------------------------
+  # Container file sync helpers
+  # ---------------------------------------------------------------------------
+
+  defp sync_to_container(agent, host_path, container_path) do
+    try do
+      Hive.Agent.copy_to_container(agent, host_path, container_path)
+    catch
+      :exit, _ -> :ok
+    end
+  end
+
+  defp delete_from_container(agent, container_path) do
+    try do
+      container_name = "hive-agent-#{agent}"
+
+      docker =
+        Application.get_env(:hive, :container_docker_executable) ||
+          System.find_executable("docker") || "docker"
+
+      System.cmd(docker, ["exec", container_name, "rm", "-rf", container_path],
+        stderr_to_stdout: true
+      )
+    catch
+      :exit, _ -> :ok
+    end
+  end
 end

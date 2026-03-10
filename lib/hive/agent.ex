@@ -101,6 +101,11 @@ defmodule Hive.Agent do
     GenServer.call(via(agent_name), :scratchpad)
   end
 
+  @doc "Copy a host file into the agent's running Docker container."
+  def copy_to_container(agent_name, host_path, container_path) do
+    GenServer.call(via(agent_name), {:copy_to_container, host_path, container_path})
+  end
+
   @doc "Stop the agent gracefully."
   def stop(agent_name) do
     GenServer.stop(via(agent_name), :normal)
@@ -250,6 +255,21 @@ defmodule Hive.Agent do
 
   def handle_call(:steering_info, _from, state) do
     {:reply, {state.active_channel, state.composing_since, state.steered}, state}
+  end
+
+  def handle_call({:copy_to_container, host_path, container_path}, _from, state) do
+    if test_sdk_mode?() do
+      {:reply, :ok, state}
+    else
+      docker = docker_executable()
+
+      {_, code} =
+        System.cmd(docker, ["cp", host_path, "#{state.container_name}:#{container_path}"],
+          stderr_to_stdout: true
+        )
+
+      {:reply, (if code == 0, do: :ok, else: {:error, :docker_cp_failed}), state}
+    end
   end
 
   # -- Casts ----------------------------------------------------------------
@@ -542,8 +562,8 @@ defmodule Hive.Agent do
     # Ensure volume exists
     ensure_volume(volume_name)
 
-    # Initialize volume on first creation
-    maybe_init_volume(state, volume_name)
+    # Initialize volume or sync config (CLAUDE.md, MCP config, context)
+    init_or_sync_volume(state, volume_name)
 
     # Check if container exists (from previous run)
     case container_exists?(container_name) do
@@ -607,7 +627,8 @@ defmodule Hive.Agent do
   defp wake_container(state, container_name) do
     docker = docker_executable()
 
-    # Update context before waking
+    # Update CLAUDE.md + context before waking (personality may have changed)
+    update_container_claude_md(state, container_name)
     update_container_context(state, container_name)
 
     Port.open(
@@ -696,7 +717,7 @@ defmodule Hive.Agent do
     code == 0
   end
 
-  defp maybe_init_volume(state, volume_name) do
+  defp init_or_sync_volume(state, volume_name) do
     docker = docker_executable()
 
     # Check if volume is already initialized (has CLAUDE.md)
@@ -717,8 +738,11 @@ defmodule Hive.Agent do
       )
 
     if code != 0 do
-      # Volume is fresh - initialize it
+      # Volume is fresh - full init with directory structure
       init_volume_files(state, volume_name)
+    else
+      # Volume exists - sync CLAUDE.md and config (personality may have changed)
+      sync_volume_config(state, volume_name)
     end
   end
 
@@ -755,6 +779,50 @@ defmodule Hive.Agent do
     )
 
     File.rm_rf!(tmp_dir)
+  end
+
+  defp sync_volume_config(state, volume_name) do
+    docker = docker_executable()
+    tmp_dir = Path.join(System.tmp_dir!(), "hive_vol_sync_#{state.name}")
+    File.mkdir_p!(Path.join(tmp_dir, ".hive"))
+
+    File.write!(Path.join(tmp_dir, "CLAUDE.md"), build_claude_md(state))
+    File.write!(Path.join(tmp_dir, ".hive/mcp_config.json"), build_mcp_config(state))
+    File.write!(Path.join(tmp_dir, ".hive/context.md"), build_dynamic_context(state.name))
+
+    System.cmd(
+      docker,
+      [
+        "run",
+        "--rm",
+        "-v",
+        "#{volume_name}:/workspace",
+        "-v",
+        "#{tmp_dir}:/init:ro",
+        "alpine",
+        "sh",
+        "-c",
+        "cp /init/CLAUDE.md /workspace/CLAUDE.md && " <>
+          "cp /init/.hive/mcp_config.json /workspace/.hive/mcp_config.json && " <>
+          "cp /init/.hive/context.md /workspace/.hive/context.md && " <>
+          "chown -R 1000:1000 /workspace/CLAUDE.md /workspace/.hive"
+      ],
+      stderr_to_stdout: true
+    )
+
+    File.rm_rf!(tmp_dir)
+  end
+
+  defp update_container_claude_md(state, container_name) do
+    docker = docker_executable()
+    tmp = Path.join(System.tmp_dir!(), "hive_claude_md_#{state.name}.md")
+    File.write!(tmp, build_claude_md(state))
+
+    System.cmd(docker, ["cp", tmp, "#{container_name}:/workspace/CLAUDE.md"],
+      stderr_to_stdout: true
+    )
+
+    File.rm(tmp)
   end
 
   defp update_container_context(state, container_name) do
