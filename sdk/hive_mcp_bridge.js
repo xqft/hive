@@ -72,14 +72,15 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {
       content: { type: "string", description: "Full CLAUDE.md content" }
     }, required: ["content"] }},
-  { name: "upload_media", description: "Upload a base64-encoded image. Returns a URL. Use ![alt](url) in send_message/send_dm.",
+  { name: "upload_media", description: "Upload a base64-encoded file. Returns a URL. For images use ![alt](url), for other files use [filename](url) in send_message/send_dm.",
     inputSchema: { type: "object", properties: {
-      data: { type: "string", description: "Base64-encoded image data" },
-      media_type: { type: "string", enum: ["image/png", "image/jpeg", "image/gif", "image/webp"], description: "MIME type of the image" }
+      data: { type: "string", description: "Base64-encoded file data" },
+      media_type: { type: "string", description: "MIME type of the file (e.g. image/png, application/pdf, text/plain)" },
+      filename: { type: "string", description: "Original filename (optional, used for display)" }
     }, required: ["data", "media_type"] }},
-  { name: "view_image", description: "View an image by URL. Returns the image so you can see its contents.",
+  { name: "view_image", description: "View an uploaded file by URL. Returns images visually; returns other files as base64.",
     inputSchema: { type: "object", properties: {
-      url: { type: "string", description: "Image URL (e.g. /uploads/abc.png)" }
+      url: { type: "string", description: "File URL (e.g. /uploads/abc.png)" }
     }, required: ["url"] }},
 ];
 

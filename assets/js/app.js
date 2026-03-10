@@ -427,6 +427,14 @@ const Hooks = {
           return
         }
 
+        // File download links — open in new tab
+        const fileLink = event.target.closest('.ui-markdown a[href^="/uploads/"]')
+        if (fileLink && this.el.contains(fileLink) && !fileLink.querySelector("img")) {
+          event.preventDefault()
+          window.open(fileLink.href, "_blank")
+          return
+        }
+
         const mention = event.target.closest(".ui-mention[data-agent-name]")
         if (!mention || !this.el.contains(mention)) return
 

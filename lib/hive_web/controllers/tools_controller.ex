@@ -289,9 +289,11 @@ defmodule HiveWeb.ToolsController do
     {:ok, "CLAUDE.md updated at #{path}"}
   end
 
-  defp execute_tool(_agent, "upload_media", %{"data" => base64, "media_type" => media_type}) do
+  defp execute_tool(_agent, "upload_media", %{"data" => base64, "media_type" => media_type} = params) do
+    opts = if params["filename"], do: [filename: params["filename"]], else: []
+
     with {:ok, data} <- Base.decode64(base64),
-         {:ok, url} <- Hive.Media.save(data, media_type) do
+         {:ok, url} <- Hive.Media.save(data, media_type, opts) do
       {:ok, url}
     else
       :error -> {:error, "invalid base64 data"}
@@ -305,9 +307,11 @@ defmodule HiveWeb.ToolsController do
 
       if File.exists?(path) do
         data = File.read!(path)
-        {:ok, %{base64: Base.encode64(data), media_type: MIME.from_path(path)}}
+        media_type = MIME.from_path(path)
+
+        {:ok, %{base64: Base.encode64(data), media_type: media_type}}
       else
-        {:error, "image not found"}
+        {:error, "file not found"}
       end
     else
       {:error, "only /uploads/ URLs are supported"}
