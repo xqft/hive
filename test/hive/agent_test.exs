@@ -610,7 +610,7 @@ defmodule Hive.AgentTest do
       on_exit(fn -> Hive.Persistence.delete_agent(name) end)
     end
 
-    test "new message from different channel clears old active_channel" do
+    test "idle: cross-channel message switches active_channel" do
       name = unique_name("actswitch")
       topic_a = unique_name("actswitcha")
       topic_b = unique_name("actswitchb")
@@ -675,6 +675,162 @@ defmodule Hive.AgentTest do
       Process.sleep(50)
 
       assert Hive.Agent.active_channel(name) == {"dm", channel}
+
+      on_exit(fn -> Hive.Persistence.delete_agent(name) end)
+    end
+
+    test "mid-turn: cross-channel message does NOT switch active_channel" do
+      name = unique_name("midcross")
+      topic_a = unique_name("midcrossa")
+      topic_b = unique_name("midcrossb")
+      :ok = Hive.Persistence.create_agent(name, "test", "test")
+      pid = start_agent(name)
+      port = get_port(pid)
+
+      # Set active channel via topic_a message
+      msg_a = %{sender: "human", sender_kind: "human", body: "hi a", ts: DateTime.utc_now()}
+      send(pid, {:topic_message, topic_a, msg_a})
+
+      # Wait for mock SDK to fully process topic_a (thinking → idle cycle)
+      assert_receive {:status, ^name, :thinking}, 1_000
+      assert_receive {:status, ^name, :idle}, 1_000
+      assert Hive.Agent.active_channel(name) == {"topic", topic_a}
+
+      # Inject thinking status (agent is mid-turn) — mock SDK is idle, no more port messages
+      inject_port_message(pid, port, Jason.encode!(%{"type" => "status", "status" => "thinking"}))
+      assert_receive {:status, ^name, :thinking}, 1_000
+
+      # Send message from different channel — should NOT switch
+      msg_b = %{sender: "human", sender_kind: "human", body: "hi b", ts: DateTime.utc_now()}
+      send(pid, {:topic_message, topic_b, msg_b})
+      Process.sleep(50)
+
+      assert Hive.Agent.active_channel(name) == {"topic", topic_a}
+
+      on_exit(fn -> Hive.Persistence.delete_agent(name) end)
+    end
+
+    test "mid-turn: cross-channel message does NOT reset steered flag" do
+      name = unique_name("midsteered")
+      topic_a = unique_name("midsteereda")
+      topic_b = unique_name("midsteeredb")
+      :ok = Hive.Persistence.create_agent(name, "test", "test")
+      pid = start_agent(name)
+      port = get_port(pid)
+
+      # Set active channel
+      msg_a = %{sender: "human", sender_kind: "human", body: "hi a", ts: DateTime.utc_now()}
+      send(pid, {:topic_message, topic_a, msg_a})
+
+      # Wait for mock SDK to finish processing
+      assert_receive {:status, ^name, :thinking}, 1_000
+      assert_receive {:status, ^name, :idle}, 1_000
+
+      # Inject thinking status — mock SDK is idle, no more port messages
+      inject_port_message(pid, port, Jason.encode!(%{"type" => "status", "status" => "thinking"}))
+      assert_receive {:status, ^name, :thinking}, 1_000
+
+      # Deliver steering
+      send(pid, :steering_delivered)
+      Process.sleep(50)
+
+      # Verify steered is true
+      agent_state = :sys.get_state(pid)
+      assert agent_state.steered == true
+
+      # Send cross-channel message — steered should remain true
+      msg_b = %{sender: "human", sender_kind: "human", body: "hi b", ts: DateTime.utc_now()}
+      send(pid, {:topic_message, topic_b, msg_b})
+      Process.sleep(50)
+
+      agent_state = :sys.get_state(pid)
+      assert agent_state.steered == true
+
+      on_exit(fn -> Hive.Persistence.delete_agent(name) end)
+    end
+
+    test "mid-turn: same-channel message preserves composing_since" do
+      name = unique_name("midsamech")
+      topic_a = unique_name("midsamecha")
+      :ok = Hive.Persistence.create_agent(name, "test", "test")
+      pid = start_agent(name)
+      port = get_port(pid)
+
+      # Set active channel
+      msg = %{sender: "human", sender_kind: "human", body: "hi", ts: DateTime.utc_now()}
+      send(pid, {:topic_message, topic_a, msg})
+
+      # Wait for mock SDK to finish processing
+      assert_receive {:status, ^name, :thinking}, 1_000
+      assert_receive {:status, ^name, :idle}, 1_000
+
+      # Record composing_since
+      original_composing = :sys.get_state(pid).composing_since
+      assert original_composing != nil
+
+      # Inject thinking status — mock SDK is idle, no more port messages
+      inject_port_message(pid, port, Jason.encode!(%{"type" => "status", "status" => "thinking"}))
+      assert_receive {:status, ^name, :thinking}, 1_000
+
+      # Send another same-channel message
+      msg2 = %{sender: "human", sender_kind: "human", body: "more", ts: DateTime.utc_now()}
+      send(pid, {:topic_message, topic_a, msg2})
+      Process.sleep(50)
+
+      # composing_since should be preserved (same channel)
+      assert :sys.get_state(pid).composing_since == original_composing
+
+      on_exit(fn -> Hive.Persistence.delete_agent(name) end)
+    end
+
+    @tag timeout: 10_000
+    test "after turn: channel switches normally again" do
+      name = unique_name("postturn")
+      topic_a = unique_name("postturna")
+      topic_b = unique_name("postturnb")
+      :ok = Hive.Persistence.create_agent(name, "test", "test")
+
+      Phoenix.PubSub.subscribe(Hive.PubSub, "topic:#{topic_a}")
+      Phoenix.PubSub.subscribe(Hive.PubSub, "topic:#{topic_b}")
+
+      pid = start_agent(name)
+      port = get_port(pid)
+
+      # Set active on topic_a
+      msg_a = %{sender: "human", sender_kind: "human", body: "hi a", ts: DateTime.utc_now()}
+      send(pid, {:topic_message, topic_a, msg_a})
+
+      # Wait for mock SDK to finish processing
+      assert_receive {:status, ^name, :thinking}, 1_000
+      assert_receive {:status, ^name, :idle}, 1_000
+      assert Hive.Agent.active_channel(name) == {"topic", topic_a}
+
+      # Inject thinking — now mid-turn (mock SDK is idle, no more port messages)
+      inject_port_message(pid, port, Jason.encode!(%{"type" => "status", "status" => "thinking"}))
+      assert_receive {:status, ^name, :thinking}, 1_000
+
+      # Cross-channel message blocked mid-turn
+      msg_b = %{sender: "human", sender_kind: "human", body: "hi b", ts: DateTime.utc_now()}
+      send(pid, {:topic_message, topic_b, msg_b})
+
+      # Drain mock SDK's processing of topic_b (send_to_sdk still sends to SDK)
+      assert_receive {:status, ^name, :thinking}, 1_000
+      assert_receive {:status, ^name, :idle}, 1_000
+      assert Hive.Agent.active_channel(name) == {"topic", topic_a}
+
+      # Inject idle — turn ends, grace timer starts
+      inject_port_message(pid, port, Jason.encode!(%{"type" => "status", "status" => "idle"}))
+      assert_receive {:status, ^name, :idle}, 1_000
+
+      # Wait for grace period to expire (3 seconds + buffer)
+      Process.sleep(3_500)
+
+      # Now send topic_b message again — should switch normally
+      msg_b2 = %{sender: "human", sender_kind: "human", body: "hi b again", ts: DateTime.utc_now()}
+      send(pid, {:topic_message, topic_b, msg_b2})
+      Process.sleep(50)
+
+      assert Hive.Agent.active_channel(name) == {"topic", topic_b}
 
       on_exit(fn -> Hive.Persistence.delete_agent(name) end)
     end

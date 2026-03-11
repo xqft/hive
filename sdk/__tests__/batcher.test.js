@@ -146,12 +146,12 @@ describe("message_batcher", () => {
   it("mid-turn handler — messages during processing go to handler, not queue", async () => {
     const batches = [];
     const midTurnMessages = [];
-    let resolveProcessing;
+    const resolvers = [];
 
     const batcher = createBatcher((batch) => {
       if (batch === null) return;
       batches.push(batch);
-      return new Promise((resolve) => { resolveProcessing = resolve; });
+      return new Promise((resolve) => { resolvers.push(resolve); });
     });
 
     // Start processing first message
@@ -170,10 +170,16 @@ describe("message_batcher", () => {
 
     assert.equal(midTurnMessages.length, 1, "mid-turn handler should receive one batched message");
     assert.equal(midTurnMessages[0], "mid-turn-1\nmid-turn-2");
-    assert.equal(batches.length, 1, "no new batches should be created");
+    assert.equal(batches.length, 1, "no new batches yet while still processing");
 
-    // Complete processing
-    resolveProcessing();
+    // Complete processing — preserved pending should flush as batch 2
+    resolvers[0]();
+    await settle();
+
+    assert.equal(batches.length, 2, "preserved pending should create batch 2");
+    assert.equal(batches[1], "mid-turn-1\nmid-turn-2");
+
+    resolvers[1]();
     await settle();
   });
 
@@ -231,5 +237,102 @@ describe("message_batcher", () => {
     assert.equal(batches.length, 1, "should process normally when not in processing state");
     assert.equal(batches[0], "normal");
     assert.equal(midTurnMessages.length, 0, "handler should not be called when not processing");
+  });
+
+  it("mid-turn: injectedCount prevents re-injection", async () => {
+    const midTurnMessages = [];
+    let resolveProcessing;
+
+    const batcher = createBatcher((batch) => {
+      if (batch === null) return;
+      return new Promise((resolve) => { resolveProcessing = resolve; });
+    });
+
+    // Start processing
+    batcher.pushLine("start");
+    await settle();
+
+    batcher.setMidTurnHandler((msg) => midTurnMessages.push(msg));
+
+    // Push msg-a, let it inject
+    batcher.pushLine("msg-a");
+    await settle();
+    assert.equal(midTurnMessages.length, 1);
+    assert.equal(midTurnMessages[0], "msg-a");
+
+    // Push msg-b — only msg-b should be injected (not msg-a again)
+    batcher.pushLine("msg-b");
+    await settle();
+    assert.equal(midTurnMessages.length, 2);
+    assert.equal(midTurnMessages[1], "msg-b");
+
+    resolveProcessing();
+    await settle();
+  });
+
+  it("mid-turn: injectedCount resets on flush", async () => {
+    const midTurnMessages = [];
+    const resolvers = [];
+
+    const batcher = createBatcher((batch) => {
+      if (batch === null) return;
+      return new Promise((resolve) => { resolvers.push(resolve); });
+    });
+
+    // Turn 1: process and inject
+    batcher.pushLine("turn1");
+    await settle();
+    batcher.setMidTurnHandler((msg) => midTurnMessages.push(msg));
+    batcher.pushLine("inject1");
+    await settle();
+    assert.equal(midTurnMessages.length, 1);
+
+    // Complete turn 1 — flush should reset injectedCount
+    resolvers[0]();
+    await settle();
+    // batch 2 from preserved pending
+    resolvers[1]();
+    await settle();
+
+    // Turn 2: start fresh
+    batcher.pushLine("turn2");
+    await settle();
+    batcher.pushLine("inject2");
+    await settle();
+    assert.equal(midTurnMessages.length, 2, "new turn should inject without stale counter");
+    assert.equal(midTurnMessages[1], "inject2");
+
+    resolvers[2]();
+    await settle();
+    resolvers[3]();
+    await settle();
+  });
+
+  it("mid-turn: no re-injection when no new messages", async () => {
+    const midTurnMessages = [];
+    let resolveProcessing;
+
+    const batcher = createBatcher((batch) => {
+      if (batch === null) return;
+      return new Promise((resolve) => { resolveProcessing = resolve; });
+    });
+
+    // Start processing
+    batcher.pushLine("start");
+    await settle();
+
+    batcher.setMidTurnHandler((msg) => midTurnMessages.push(msg));
+
+    // Inject once
+    batcher.pushLine("msg-a");
+    await settle();
+    assert.equal(midTurnMessages.length, 1);
+
+    // Trigger another setImmediate cycle with no new pushes — handler should NOT be called again
+    await settle(5);
+    assert.equal(midTurnMessages.length, 1, "handler should not be called without new messages");
+
+    resolveProcessing();
+    await settle();
   });
 });

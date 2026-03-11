@@ -1170,25 +1170,30 @@ defmodule Hive.Agent do
       channel = {channel_type, channel_name}
       same_channel = state.active_channel == channel
 
-      # Preserve composing_since if we're already composing for this channel
-      composing_since =
-        if same_channel and state.composing_since,
-          do: state.composing_since,
-          else: DateTime.utc_now()
+      # Mid-turn guard: don't switch channels while thinking
+      if state.status == :thinking and state.active_channel != nil and not same_channel do
+        state
+      else
+        # Preserve composing_since if we're already composing for this channel
+        composing_since =
+          if same_channel and state.composing_since,
+            do: state.composing_since,
+            else: DateTime.utc_now()
 
-      # Reset steered flag when switching channels
-      steered = if same_channel, do: state.steered, else: false
+        # Reset steered flag when switching channels
+        steered = if same_channel, do: state.steered, else: false
 
-      # Cancel any pending grace timer since we're starting new activity
-      state = cancel_typing_timer(state)
-      next_state = stop_active_typing(state)
+        # Cancel any pending grace timer since we're starting new activity
+        state = cancel_typing_timer(state)
+        next_state = stop_active_typing(state)
 
-      safe_broadcast(
-        "topic:#{channel_name}",
-        {:typing, %{topic: channel_name, agent: state.name, typing: true}}
-      )
+        safe_broadcast(
+          "topic:#{channel_name}",
+          {:typing, %{topic: channel_name, agent: state.name, typing: true}}
+        )
 
-      %{next_state | active_channel: channel, composing_since: composing_since, steered: steered}
+        %{next_state | active_channel: channel, composing_since: composing_since, steered: steered}
+      end
     end
   end
 

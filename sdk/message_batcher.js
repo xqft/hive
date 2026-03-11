@@ -7,6 +7,7 @@ export function createBatcher(onBatch) {
   let processing = false;
   let flushScheduled = false;
   let midTurnHandler = null;
+  let injectedCount = 0;
 
   function pushLine(line) {
     pending.push(line);
@@ -15,9 +16,12 @@ export function createBatcher(onBatch) {
       setImmediate(() => {
         flushScheduled = false;
         if (processing && midTurnHandler) {
-          // Mid-turn: route to streamInput instead of queueing
-          const msg = pending.splice(0, pending.length).join("\n");
-          midTurnHandler(msg);
+          // Mid-turn: inject new messages without removing from pending
+          const newMessages = pending.slice(injectedCount);
+          if (newMessages.length > 0) {
+            midTurnHandler(newMessages.join("\n"));
+            injectedCount = pending.length;
+          }
         } else if (!processing && pending.length > 0) {
           flush();
         }
@@ -26,6 +30,7 @@ export function createBatcher(onBatch) {
   }
 
   function flush() {
+    injectedCount = 0;
     if (pending.length === 0) {
       processing = false;
       onBatch(null); // null signals idle
