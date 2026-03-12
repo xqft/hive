@@ -110,6 +110,7 @@ async function processNext(batch) {
         "Skill", "WebFetch", "WebSearch",
         ...hiveTools, ...extraToolPatterns
       ],
+      disallowedTools: ["Bash"],
       settingSources: [],  // Don't load filesystem settings, we provide everything
       mcpServers: Object.fromEntries(
         Object.entries(mcpConfig.mcpServers).map(([name, cfg]) => [
