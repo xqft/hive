@@ -268,13 +268,19 @@ defmodule Hive.ToolEnrichment do
   end
 
   defp tmux_send_summary(input) do
-    text = input["text"]
-    keys = input["keys"]
+    raw = input["input"] || ""
     wait = input["wait_ms"]
 
-    parts = []
-    parts = if text, do: parts ++ ["<code>#{esc(text)}</code>"], else: parts
-    parts = if keys, do: parts ++ [humanize_key(keys)], else: parts
+    # Parse {KeyName} segments and literal text
+    parts =
+      Regex.split(~r/(\{[^}]+\})/, raw, include_captures: true, trim: true)
+      |> Enum.map(fn segment ->
+        case Regex.run(~r/^\{([^}]+)\}$/, segment) do
+          [_, key] -> humanize_key(key)
+          nil -> "<code>#{esc(segment)}</code>"
+        end
+      end)
+
     suffix = if wait && wait > 0, do: " (read)", else: ""
 
     "Terminal: #{Enum.join(parts, " ")}#{suffix}"

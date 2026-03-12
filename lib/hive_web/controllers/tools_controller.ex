@@ -342,23 +342,22 @@ defmodule HiveWeb.ToolsController do
   defp execute_tool(agent, "tmux_send", params) do
     container_name = "hive-agent-#{agent}"
     docker = docker_executable()
-    text = params["text"]
-    keys = params["keys"]
+    input = params["input"] || ""
     wait_ms = params["wait_ms"] || 0
 
-    # Send literal text if provided
-    if text do
-      System.cmd(docker, [
-        "exec", container_name, "tmux", "send-keys", "-t", "shell", "-l", text
-      ], stderr_to_stdout: true)
-    end
+    # Parse input into segments: literal text and {KeyName} special keys
+    parse_tmux_input(input)
+    |> Enum.each(fn
+      {:text, text} ->
+        System.cmd(docker, [
+          "exec", container_name, "tmux", "send-keys", "-t", "shell", "-l", text
+        ], stderr_to_stdout: true)
 
-    # Send special keys if provided
-    if keys do
-      System.cmd(docker, [
-        "exec", container_name, "tmux", "send-keys", "-t", "shell", keys
-      ], stderr_to_stdout: true)
-    end
+      {:key, key} ->
+        System.cmd(docker, [
+          "exec", container_name, "tmux", "send-keys", "-t", "shell", key
+        ], stderr_to_stdout: true)
+    end)
 
     if wait_ms > 0 do
       wait_ms = min(wait_ms, 30_000)
@@ -384,6 +383,19 @@ defmodule HiveWeb.ToolsController do
 
   defdelegate sender_kind(sender), to: Hive.Util
   defdelegate format_history_timestamp(ts), to: Hive.Util, as: :format_timestamp
+
+  # Parses input string into segments of literal text and {KeyName} special keys.
+  # E.g. "ls -la{Enter}" -> [{:text, "ls -la"}, {:key, "Enter"}]
+  defp parse_tmux_input(input) do
+    # Split on {KeyName} patterns, keeping the delimiters
+    Regex.split(~r/(\{[^}]+\})/, input, include_captures: true, trim: true)
+    |> Enum.map(fn segment ->
+      case Regex.run(~r/^\{([^}]+)\}$/, segment) do
+        [_, key] -> {:key, key}
+        nil -> {:text, segment}
+      end
+    end)
+  end
 
   defp capture_tmux_pane(container_name, docker) do
     case System.cmd(docker, [

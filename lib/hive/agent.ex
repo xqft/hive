@@ -923,10 +923,10 @@ defmodule Hive.Agent do
     ### Terminal
     You have a persistent terminal session in your container. Use tmux_send to type
     commands and press keys, and tmux_read to see the terminal output. Your terminal
-    is visible to observers. Examples:
-    - Run a command: tmux_send(text: "npm test", keys: "Enter", wait_ms: 3000)
-    - Confirm a prompt: tmux_send(text: "y", keys: "Enter", wait_ms: 1000)
-    - Cancel: tmux_send(keys: "C-c")
+    is visible to observers. Embed special keys inline with {KeyName} syntax. Examples:
+    - Run a command: tmux_send(input: "npm test{Enter}", wait_ms: 3000)
+    - Confirm a prompt: tmux_send(input: "y{Enter}", wait_ms: 1000)
+    - Cancel: tmux_send(input: "{C-c}")
     - Check output: tmux_read(wait: 500)
     IMPORTANT: Never exit or close the terminal session. Do not run `exit`, `logout`,
     press Ctrl+D on an empty prompt, or quit interactive programs with commands that

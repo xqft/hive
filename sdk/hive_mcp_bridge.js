@@ -85,12 +85,11 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {
       url: { type: "string", description: "File URL (e.g. /uploads/abc.png)" }
     }, required: ["url"] }},
-  { name: "tmux_send", description: "Send text and/or keys to the workspace terminal. Set wait_ms > 0 to wait and return terminal output in one call. Use this instead of Bash for running commands.",
+  { name: "tmux_send", description: "Send text and/or keys to the workspace terminal. Embed special keys inline with {KeyName} syntax. Examples: 'ls -la{Enter}', 'cd src{Tab}{Enter}', '{C-c}'. Available keys: Enter, C-c, C-d, Up, Down, Left, Right, Tab, Escape, Space, BSpace, etc. Set wait_ms > 0 to wait and return terminal output in one call. Use this instead of Bash for running commands.",
     inputSchema: { type: "object", properties: {
-      text: { type: "string", description: "Text to type (literal characters)" },
-      keys: { type: "string", description: "Special key: Enter, C-c, C-d, Up, Down, Tab, Escape, etc." },
+      input: { type: "string", description: "Text with optional inline special keys in {KeyName} syntax. E.g. 'echo hello{Enter}', '{C-c}', 'cd {Tab}{Enter}'" },
       wait_ms: { type: "number", description: "Ms to wait then return screen content (0 = fire-and-forget, default 0)" }
-    }}},
+    }, required: ["input"] }},
   { name: "tmux_read", description: "Read the current terminal screen content without sending input. Useful to check on long-running commands or see current state.",
     inputSchema: { type: "object", properties: {
       wait: { type: "number", description: "Ms to wait before reading (default 1000, max 30000)" }

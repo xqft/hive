@@ -160,45 +160,44 @@ defmodule Hive.ToolEnrichmentTest do
 
   describe "enrich/2 — terminal tools" do
     test "tmux_send with text and Enter" do
-      r = ToolEnrichment.enrich("mcp__hive__tmux_send", %{"text" => "npm test", "keys" => "Enter"})
+      r = ToolEnrichment.enrich("mcp__hive__tmux_send", %{"input" => "npm test{Enter}"})
       assert r.icon == :command_line
       assert r.summary == "Terminal: <code>npm test</code> ↵"
       assert r.link == {:tab, :terminal}
     end
 
     test "tmux_send with just Ctrl+C" do
-      r = ToolEnrichment.enrich("mcp__hive__tmux_send", %{"keys" => "C-c"})
+      r = ToolEnrichment.enrich("mcp__hive__tmux_send", %{"input" => "{C-c}"})
       assert r.summary == "Terminal: Ctrl+C"
     end
 
     test "tmux_send with just Ctrl+D" do
-      r = ToolEnrichment.enrich("mcp__hive__tmux_send", %{"keys" => "C-d"})
+      r = ToolEnrichment.enrich("mcp__hive__tmux_send", %{"input" => "{C-d}"})
       assert r.summary == "Terminal: Ctrl+D"
     end
 
     test "tmux_send with Tab key" do
-      r = ToolEnrichment.enrich("mcp__hive__tmux_send", %{"keys" => "Tab"})
+      r = ToolEnrichment.enrich("mcp__hive__tmux_send", %{"input" => "{Tab}"})
       assert r.summary == "Terminal: Tab"
     end
 
     test "tmux_send with arrow keys" do
-      assert ToolEnrichment.enrich("mcp__hive__tmux_send", %{"keys" => "Up"}).summary ==
+      assert ToolEnrichment.enrich("mcp__hive__tmux_send", %{"input" => "{Up}"}).summary ==
                "Terminal: ↑"
 
-      assert ToolEnrichment.enrich("mcp__hive__tmux_send", %{"keys" => "Down"}).summary ==
+      assert ToolEnrichment.enrich("mcp__hive__tmux_send", %{"input" => "{Down}"}).summary ==
                "Terminal: ↓"
     end
 
     test "tmux_send with unknown key passes through" do
-      r = ToolEnrichment.enrich("mcp__hive__tmux_send", %{"keys" => "Space"})
+      r = ToolEnrichment.enrich("mcp__hive__tmux_send", %{"input" => "{Space}"})
       assert r.summary == "Terminal: Space"
     end
 
     test "tmux_send with wait_ms" do
       r =
         ToolEnrichment.enrich("mcp__hive__tmux_send", %{
-          "text" => "y",
-          "keys" => "Enter",
+          "input" => "y{Enter}",
           "wait_ms" => 1000
         })
 
@@ -208,8 +207,7 @@ defmodule Hive.ToolEnrichmentTest do
     test "tmux_send with wait_ms of 0 does not append (read)" do
       r =
         ToolEnrichment.enrich("mcp__hive__tmux_send", %{
-          "text" => "y",
-          "keys" => "Enter",
+          "input" => "y{Enter}",
           "wait_ms" => 0
         })
 
@@ -217,8 +215,13 @@ defmodule Hive.ToolEnrichmentTest do
     end
 
     test "tmux_send with only text, no keys" do
-      r = ToolEnrichment.enrich("mcp__hive__tmux_send", %{"text" => "hello"})
+      r = ToolEnrichment.enrich("mcp__hive__tmux_send", %{"input" => "hello"})
       assert r.summary == "Terminal: <code>hello</code>"
+    end
+
+    test "tmux_send with interleaved text and keys" do
+      r = ToolEnrichment.enrich("mcp__hive__tmux_send", %{"input" => "cd src{Tab}{Enter}"})
+      assert r.summary == "Terminal: <code>cd src</code> Tab ↵"
     end
 
     test "tmux_read" do
