@@ -266,6 +266,38 @@ test.describe("File upload", () => {
     }
   });
 
+  test("exceeding max_entries shows error message", async ({ page }) => {
+    // max_entries is 4. Uploading 5 files should trigger a visible
+    // "Too many files (max 4)" error rendered from @uploads.media.errors
+    const pngData = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADklEQVQI12P4z8BQDwAEgAF/QualzQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    const files = Array.from({ length: 5 }, (_, i) =>
+      createTempFile(`err-file-${i}.png`, pngData),
+    );
+
+    try {
+      // Upload all 5 files at once via the native file chooser
+      const [fileChooser] = await Promise.all([
+        page.waitForEvent("filechooser"),
+        page.locator(".ui-chat-composer__upload-btn").click(),
+      ]);
+      await fileChooser.setFiles(files);
+
+      // Wait for LiveView to process entries and render errors
+      await page.locator(".ui-upload-previews").waitFor({ state: "visible", timeout: 10000 });
+
+      // The error message should be visible with role="alert"
+      const errorMsg = page.locator(".ui-upload-error");
+      await expect(errorMsg).toBeVisible({ timeout: 5000 });
+      await expect(errorMsg).toHaveAttribute("role", "alert");
+      await expect(errorMsg).toContainText("Too many files");
+    } finally {
+      files.forEach(cleanupTempFile);
+    }
+  });
+
   test("upload progress indicator is visible during upload", async ({ page }) => {
     // Use a slightly larger file to have a visible upload state
     const data = Buffer.alloc(50_000, "x");

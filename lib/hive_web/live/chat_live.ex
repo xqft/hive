@@ -1313,8 +1313,8 @@ defmodule HiveWeb.ChatLive do
     end
   end
 
-  defp upload_error_to_string(:too_large), do: "File is too large"
-  defp upload_error_to_string(:too_many_files), do: "Too many files (max 4)"
-  defp upload_error_to_string(:not_accepted), do: "File type not accepted"
+  defp upload_error_to_string({_ref, :too_large}), do: "File is too large"
+  defp upload_error_to_string({_ref, :too_many_files}), do: "Too many files (max 4)"
+  defp upload_error_to_string({_ref, :not_accepted}), do: "File type not accepted"
   defp upload_error_to_string(err), do: "Upload error: #{inspect(err)}"
 end
