@@ -40,6 +40,7 @@ defmodule Hive.Agent do
   ]
 
   @scratchpad_limit 100
+  @hive_network "hive-net"
 
   # ---------------------------------------------------------------------------
   # HMAC secret derivation
@@ -559,7 +560,8 @@ defmodule Hive.Agent do
     container_name = state.container_name
     volume_name = state.volume_name
 
-    # Ensure volume exists
+    # Ensure network and volume exist
+    ensure_network()
     ensure_volume(volume_name)
 
     # Initialize volume or sync config (CLAUDE.md, MCP config, context)
@@ -568,7 +570,7 @@ defmodule Hive.Agent do
     # Check if container exists (from previous run)
     case container_exists?(container_name) do
       true ->
-        if container_image_stale?(container_name) do
+        if container_image_stale?(container_name) or container_network_mismatch?(container_name) do
           # Image updated since container was created — recreate (volume preserved)
           Logger.info("Agent #{state.name} container image is stale, recreating")
           remove_container(container_name)
@@ -607,7 +609,9 @@ defmodule Hive.Agent do
         "-v",
         "#{volume_name}:/workspace",
         "--network",
-        "host"
+        @hive_network,
+        "--add-host",
+        "host.docker.internal:host-gateway"
       ] ++
         auth_args ++
         [
@@ -720,6 +724,11 @@ defmodule Hive.Agent do
   # Volume management
   # ---------------------------------------------------------------------------
 
+  defp ensure_network do
+    docker = docker_executable()
+    System.cmd(docker, ["network", "create", @hive_network], stderr_to_stdout: true)
+  end
+
   defp ensure_volume(volume_name) do
     docker = docker_executable()
     System.cmd(docker, ["volume", "create", volume_name], stderr_to_stdout: true)
@@ -753,6 +762,22 @@ defmodule Hive.Agent do
     String.trim(container_image) != String.trim(current_image)
   rescue
     _ -> false
+  end
+
+  defp container_network_mismatch?(container_name) do
+    docker = docker_executable()
+
+    case System.cmd(docker, [
+           "inspect",
+           "--format",
+           "{{.HostConfig.NetworkMode}}",
+           container_name
+         ],
+         stderr_to_stdout: true
+       ) do
+      {output, 0} -> String.trim(output) != @hive_network
+      _ -> false
+    end
   end
 
   defp remove_container(container_name) do
@@ -985,7 +1010,7 @@ defmodule Hive.Agent do
   end
 
   defp build_mcp_config(state) do
-    hive_url = "http://localhost:#{hive_port()}"
+    hive_url = "http://host.docker.internal:#{hive_port()}"
 
     mcp_servers = %{
       "hive" => %{

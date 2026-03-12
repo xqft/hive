@@ -100,11 +100,11 @@ async function processNext(batch) {
 
     const options = {
       model: "claude-opus-4-6",
-      permissionMode: "bypassPermissions",
-      allowDangerouslySkipPermissions: true,
+      permissionMode: "dontAsk",
       settings: { effortLevel: "max" },
       systemPrompt,
       includePartialMessages: true,
+      tools: ["Read", "Write", "Edit", "Glob", "Grep", "Skill", "WebFetch", "WebSearch"],
       allowedTools: [
         "Read", "Write", "Edit", "Glob", "Grep",
         "Skill", "WebFetch", "WebSearch",
