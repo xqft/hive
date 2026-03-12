@@ -1084,6 +1084,17 @@ select {
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
+/* Upload error messages */
+.ui-upload-error {
+  width: 100%;
+  margin: 0 0 0.25rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.75rem;
+  color: var(--ui-danger);
+  background: color-mix(in srgb, var(--ui-danger) 8%, transparent);
+  border-radius: 4px;
+}
+
 /* Upload preview strip */
 .ui-upload-previews {
   display: flex;

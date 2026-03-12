@@ -220,10 +220,17 @@ defmodule HiveWeb.ChatLive do
                   </div>
 
                   <div
-                    :if={@uploads.media.entries != []}
+                    :if={@uploads.media.entries != [] or @uploads.media.errors != []}
                     class="ui-upload-previews"
                     style="padding: 0.5rem 0.95rem 0;"
                   >
+                    <p
+                      :for={err <- @uploads.media.errors}
+                      class="ui-upload-error"
+                      role="alert"
+                    >
+                      {upload_error_to_string(err)}
+                    </p>
                     <div :for={entry <- @uploads.media.entries} class="ui-upload-preview">
                       <%= if image_entry?(entry) do %>
                         <.live_img_preview entry={entry} class="ui-upload-preview__thumb" />
@@ -1305,4 +1312,9 @@ defmodule HiveWeb.ChatLive do
       name
     end
   end
+
+  defp upload_error_to_string(:too_large), do: "File is too large"
+  defp upload_error_to_string(:too_many_files), do: "Too many files (max 4)"
+  defp upload_error_to_string(:not_accepted), do: "File type not accepted"
+  defp upload_error_to_string(err), do: "Upload error: #{inspect(err)}"
 end
